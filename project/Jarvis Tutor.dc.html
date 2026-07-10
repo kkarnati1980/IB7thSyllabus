@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Public+Sans:ital,wght@0,400..800;1,400&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Public Sans', system-ui, sans-serif; background: #EFEAE0; color: #23201B; -webkit-font-smoothing: antialiased; }
+  a { color: #4C43D9; }
+  a:hover { color: #372FB0; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #D8D0C2; border-radius: 8px; }
+  @keyframes jpulse { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.14); opacity: .4; } }
+  @keyframes jdot { 0%,80%,100% { transform: translateY(0); opacity:.4;} 40% { transform: translateY(-5px); opacity:1;} }
+  @keyframes jfade { from { opacity: 0; transform: translateY(8px);} to { opacity:1; transform: none;} }
+  @keyframes jring { to { stroke-dashoffset: var(--dash); } }
+</style>
+</helmet>
+<!-- AUTH: LOGIN -->
+<sc-if value="{{ isLogin }}" hint-placeholder-val="{{ false }}">
+<div style="min-height:100vh; background:#EFEAE0; display:flex; align-items:center; justify-content:center; padding:24px;">
+  <div style="width:100%; max-width:440px;">
+    <div style="text-align:center; margin-bottom:28px;">
+      <div style="width:60px; height:60px; border-radius:18px; background:linear-gradient(150deg,#6B62F5,#4C43D9); display:flex; align-items:center; justify-content:center; font-family:'Bricolage Grotesque'; font-weight:800; color:#fff; font-size:28px; margin:0 auto 12px; box-shadow:0 10px 30px rgba(76,67,217,.4);">J</div>
+      <div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:30px; letter-spacing:-.02em;">Jarvis</div>
+      <div style="font-size:14px; color:#8A8172; margin-top:4px;">{{ loginSubtitle }}</div>
+    </div>
+
+    <sc-if value="{{ isRegScreen }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#fff; border-radius:24px; border:1px solid #E7E1D6; padding:32px; box-shadow:0 20px 60px -20px rgba(0,0,0,.12);">
+      <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:20px; margin-bottom:20px;">Create account</div>
+      <sc-if value="{{ regError }}" hint-placeholder-val="{{ false }}"><div style="background:#FDECEA; color:#C0392B; font-size:13px; font-weight:600; padding:10px 14px; border-radius:10px; margin-bottom:14px;">{{ regError }}</div></sc-if>
+      <label style="display:block; font-size:13px; font-weight:700; margin-bottom:5px; color:#5A5347;">Full name</label>
+      <input value="{{ regName }}" onInput="{{ onRegName }}" placeholder="Aarav Sharma" style="width:100%; border:1px solid #E0D9CC; border-radius:12px; padding:12px 14px; font-size:15px; font-family:'Public Sans'; margin-bottom:14px;">
+      <label style="display:block; font-size:13px; font-weight:700; margin-bottom:5px; color:#5A5347;">Email</label>
+      <input value="{{ regEmail }}" onInput="{{ onRegEmail }}" placeholder="aarav@school.edu" type="email" style="width:100%; border:1px solid #E0D9CC; border-radius:12px; padding:12px 14px; font-size:15px; font-family:'Public Sans'; margin-bottom:14px;">
+      <label style="display:block; font-size:13px; font-weight:700; margin-bottom:5px; color:#5A5347;">Password <span style="font-weight:400; color:#A79E8E;">(min 8 chars)</span></label>
+      <input value="{{ regPass }}" onInput="{{ onRegPass }}" type="password" placeholder="••••••••" style="width:100%; border:1px solid #E0D9CC; border-radius:12px; padding:12px 14px; font-size:15px; font-family:'Public Sans'; margin-bottom:20px;">
+      <button onClick="{{ doRegister }}" style="width:100%; background:#4C43D9; color:#fff; border:none; border-radius:14px; padding:14px; font-weight:700; font-size:16px; cursor:pointer; margin-bottom:12px;">Create account</button>
+      <button onClick="{{ goLoginBack }}" style="width:100%; background:none; border:none; color:#8A8172; font-size:14px; cursor:pointer;">← Back to login</button>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ isNotRegScreen }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#fff; border-radius:24px; border:1px solid #E7E1D6; padding:32px; box-shadow:0 20px 60px -20px rgba(0,0,0,.12);">
+      <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:20px; margin-bottom:20px;">Sign in</div>
+      <sc-if value="{{ loginError }}" hint-placeholder-val="{{ false }}"><div style="background:#FDECEA; color:#C0392B; font-size:13px; font-weight:600; padding:10px 14px; border-radius:10px; margin-bottom:14px;">{{ loginError }}</div></sc-if>
+      <label style="display:block; font-size:13px; font-weight:700; margin-bottom:5px; color:#5A5347;">{{ loginEmailLabel }}</label>
+      <input value="{{ loginEmail }}" onInput="{{ onLoginEmail }}" onKeyDown="{{ onLoginKey }}" placeholder="{{ loginEmailPlaceholder }}" style="width:100%; border:1px solid #E0D9CC; border-radius:12px; padding:12px 14px; font-size:15px; font-family:'Public Sans'; margin-bottom:14px;">
+      <label style="display:block; font-size:13px; font-weight:700; margin-bottom:5px; color:#5A5347;">Password</label>
+      <input value="{{ loginPass }}" onInput="{{ onLoginPass }}" onKeyDown="{{ onLoginKey }}" type="password" placeholder="••••••••" style="width:100%; border:1px solid #E0D9CC; border-radius:12px; padding:12px 14px; font-size:15px; font-family:'Public Sans'; margin-bottom:20px;">
+      <button onClick="{{ doLogin }}" style="width:100%; background:#4C43D9; color:#fff; border:none; border-radius:14px; padding:14px; font-weight:700; font-size:16px; cursor:pointer; margin-bottom:14px;">{{ loginBtnLabel }}</button>
+      <sc-if value="{{ isAdminRouteFlag }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center; font-size:12px; color:#A79E8E;">Admin portal · SOC2-compliant session management</div>
+      </sc-if>
+      <sc-if value="{{ isNotAdminRoute }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ goRegister }}" style="width:100%; background:none; border:1px solid #E7E1D6; border-radius:14px; padding:12px; font-weight:600; font-size:14px; cursor:pointer; color:#4C43D9;">New student? Create account</button>
+      </sc-if>
+    </div>
+    </sc-if>
+
+    <div style="text-align:center; margin-top:16px; font-size:12px; color:#A79E8E;">SHA-256 password hashing · Session tokens · Audit logging</div>
+  </div>
+</div>
+</sc-if>
+
+<!-- AUTH: ADMIN PORTAL -->
+<sc-if value="{{ isAdminPortal }}" hint-placeholder-val="{{ false }}">
+<div style="min-height:100vh; background:#EFEAE0; display:flex; flex-direction:column;">
+  <!-- admin header -->
+  <div style="background:#23201B; color:#fff; padding:16px 32px; display:flex; align-items:center; gap:16px;">
+    <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(150deg,#6B62F5,#4C43D9); display:flex; align-items:center; justify-content:center; font-family:'Bricolage Grotesque'; font-weight:800; font-size:18px;">J</div>
+    <div style="flex:1;"><div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px;">Jarvis Admin Portal</div><div style="font-size:12px; opacity:.6;">Logged in as {{ currentUserEmail }}</div></div>
+    <button onClick="{{ doLogout }}" style="background:#C0392B; border:none; color:#fff; border-radius:10px; padding:9px 16px; font-size:13px; font-weight:700; cursor:pointer;">Logout</button>
+  </div>
+
+  <!-- admin stats -->
+  <div style="display:flex; gap:14px; padding:24px 32px 0; flex-wrap:wrap;">
+    <div style="background:#fff; border:1px solid #E7E1D6; border-radius:16px; padding:18px 24px; min-width:160px;"><div style="font-size:28px; font-family:'Bricolage Grotesque'; font-weight:800; color:#4C43D9;">{{ adminUserCount }}</div><div style="font-size:13px; color:#8A8172;">Student accounts</div></div>
+    <div style="background:#fff; border:1px solid #E7E1D6; border-radius:16px; padding:18px 24px; min-width:160px;"><div style="font-size:28px; font-family:'Bricolage Grotesque'; font-weight:800; color:#2E9E6B;">{{ adminActiveCount }}</div><div style="font-size:13px; color:#8A8172;">Active users</div></div>
+    <div style="background:#4C43D9; border-radius:16px; padding:18px 24px; min-width:160px; color:#fff;"><div style="font-size:14px; font-weight:700;">SOC2 Controls</div><div style="font-size:12px; opacity:.8; margin-top:4px;">SHA-256 hashing · Audit log · Session mgmt · Role-based access</div></div>
+  </div>
+
+  <!-- admin tabs -->
+  <div style="display:flex; gap:0; padding:20px 32px 0; border-bottom:1px solid #E7E1D6; background:#EFEAE0; margin-top:16px;">
+    <button onClick="{{ setAdminUsers }}" style="{{ adminTabUsersStyle }}">👥 Users</button>
+    <button onClick="{{ setAdminAudit }}" style="{{ adminTabAuditStyle }}">📋 Audit Log</button>
+  </div>
+
+  <!-- USERS TAB -->
+  <sc-if value="{{ isAdminUsers }}" hint-placeholder-val="{{ true }}">
+  <div style="padding:24px 32px; display:grid; grid-template-columns:1fr 360px; gap:24px; align-items:start;">
+    <!-- user table -->
+    <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; overflow:hidden;">
+      <div style="padding:16px 20px; border-bottom:1px solid #E7E1D6; font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px;">All users</div>
+      <sc-for list="{{ adminUsers }}" as="u" hint-placeholder-count="3">
+        <div style="border-bottom:1px solid #F5F0E8;">
+          <!-- user row -->
+          <div style="display:flex; align-items:center; gap:14px; padding:14px 20px;">
+            <div style="width:38px; height:38px; border-radius:12px; background:#ECEBFB; display:flex; align-items:center; justify-content:center; font-weight:800; font-family:'Bricolage Grotesque'; color:#4C43D9; font-size:16px; flex:0 0 38px;">{{ u.initial }}</div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ u.name }}</div>
+              <div style="font-size:12px; color:#8A8172;">{{ u.email }} · {{ u.role }}</div>
+            </div>
+            <div style="font-size:11px; font-weight:700; color:{{ u.statusColor }}; min-width:48px;">{{ u.statusLabel }}</div>
+            <div style="font-size:12px; color:#A79E8E; min-width:80px;">{{ u.createdAt }}</div>
+            <button onClick="{{ u.toggle }}" style="background:#F6F3EC; border:1px solid #E7E1D6; border-radius:9px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; color:{{ u.toggleColor }};">{{ u.toggleLabel }}</button>
+            <button onClick="{{ u.edit }}" style="background:#ECEBFB; border:none; border-radius:9px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; color:#4C43D9;">Edit</button>
+            <button onClick="{{ u.del }}" style="background:#FDECEA; border:none; border-radius:9px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; color:#C0392B;">Delete</button>
+          </div>
+          <!-- inline edit form -->
+          <sc-if value="{{ u.isEditing }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#F6F3EC; border-top:1px solid #EEE9DF; padding:18px 20px 20px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:end;">
+              <div>
+                <label style="display:block; font-size:11px; font-weight:700; color:#5A5347; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em;">Name</label>
+                <input value="{{ editUserName }}" onInput="{{ onEditName }}" style="width:100%; border:1px solid #E0D9CC; border-radius:9px; padding:9px 11px; font-size:14px; font-family:'Public Sans'; background:#fff;">
+              </div>
+              <div>
+                <label style="display:block; font-size:11px; font-weight:700; color:#5A5347; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em;">Email / username</label>
+                <input value="{{ editUserEmail }}" onInput="{{ onEditEmail }}" style="width:100%; border:1px solid #E0D9CC; border-radius:9px; padding:9px 11px; font-size:14px; font-family:'Public Sans'; background:#fff;">
+              </div>
+              <div>
+                <label style="display:block; font-size:11px; font-weight:700; color:#5A5347; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em;">Role</label>
+                <select value="{{ editUserRole }}" onChange="{{ onEditRole }}" style="width:100%; border:1px solid #E0D9CC; border-radius:9px; padding:9px 11px; font-size:14px; font-family:'Public Sans'; background:#fff;">
+                  <option value="student">Student</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block; font-size:11px; font-weight:700; color:#5A5347; margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em;">New password <span style="font-weight:400;">(leave blank to keep)</span></label>
+                <input value="{{ editUserPass }}" onInput="{{ onEditPass }}" type="password" placeholder="••••••••" style="width:100%; border:1px solid #E0D9CC; border-radius:9px; padding:9px 11px; font-size:14px; font-family:'Public Sans'; background:#fff;">
+              </div>
+              <div style="grid-column:2/4;">
+                <sc-if value="{{ editError }}" hint-placeholder-val="{{ false }}"><div style="background:#FDECEA; color:#C0392B; font-size:12px; font-weight:600; padding:7px 10px; border-radius:8px; margin-bottom:8px;">{{ editError }}</div></sc-if>
+                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                  <button onClick="{{ cancelEdit }}" style="background:#fff; border:1px solid #E0D9CC; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; color:#5A5347;">Cancel</button>
+                  <button onClick="{{ saveEdit }}" style="background:#4C43D9; border:none; border-radius:9px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; color:#fff;">Save changes</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <!-- create user panel -->
+    <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:22px;">
+      <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px; margin-bottom:16px;">Create account</div>
+      <sc-if value="{{ newUserError }}" hint-placeholder-val="{{ false }}"><div style="background:#FDECEA; color:#C0392B; font-size:13px; font-weight:600; padding:9px 12px; border-radius:10px; margin-bottom:12px;">{{ newUserError }}</div></sc-if>
+      <label style="display:block; font-size:12px; font-weight:700; color:#5A5347; margin-bottom:4px;">Full name</label>
+      <input value="{{ newUserName }}" onInput="{{ onNewName }}" placeholder="Student Name" style="width:100%; border:1px solid #E0D9CC; border-radius:10px; padding:10px 12px; font-size:14px; font-family:'Public Sans'; margin-bottom:12px;">
+      <label style="display:block; font-size:12px; font-weight:700; color:#5A5347; margin-bottom:4px;">Email / username</label>
+      <input value="{{ newUserEmail }}" onInput="{{ onNewEmail }}" placeholder="student@school.edu" style="width:100%; border:1px solid #E0D9CC; border-radius:10px; padding:10px 12px; font-size:14px; font-family:'Public Sans'; margin-bottom:12px;">
+      <label style="display:block; font-size:12px; font-weight:700; color:#5A5347; margin-bottom:4px;">Password</label>
+      <input value="{{ newUserPass }}" onInput="{{ onNewPass }}" type="password" placeholder="••••••••" style="width:100%; border:1px solid #E0D9CC; border-radius:10px; padding:10px 12px; font-size:14px; font-family:'Public Sans'; margin-bottom:12px;">
+      <label style="display:block; font-size:12px; font-weight:700; color:#5A5347; margin-bottom:4px;">Role</label>
+      <select value="{{ newUserRole }}" onChange="{{ onNewRole }}" style="width:100%; border:1px solid #E0D9CC; border-radius:10px; padding:10px 12px; font-size:14px; font-family:'Public Sans'; margin-bottom:16px; background:#fff;">
+        <option value="student">Student</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button onClick="{{ adminCreateUser }}" style="width:100%; background:#4C43D9; color:#fff; border:none; border-radius:12px; padding:12px; font-weight:700; font-size:14px; cursor:pointer;">Create user</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- AUDIT LOG TAB -->
+  <sc-if value="{{ isAdminAudit }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:24px 32px;">
+    <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; overflow:hidden;">
+      <div style="padding:16px 20px; border-bottom:1px solid #E7E1D6; display:flex; align-items:center; justify-content:space-between;">
+        <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px;">Security audit log</div>
+        <div style="font-size:12px; color:#8A8172;">Last 50 events · All times UTC</div>
+      </div>
+      <sc-for list="{{ auditLog }}" as="l" hint-placeholder-count="5">
+        <div style="display:flex; gap:14px; padding:12px 20px; border-bottom:1px solid #F5F0E8; align-items:flex-start;">
+          <span style="font-size:11px; font-weight:800; color:{{ l.actionColor }}; min-width:110px; padding-top:1px;">{{ l.action }}</span>
+          <span style="font-size:13px; flex:1; color:#4A453C;">{{ l.detail }}</span>
+          <span style="font-size:11px; color:#A79E8E; min-width:140px; text-align:right;">{{ l.at }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</sc-if>
+
+<!-- MAIN APP (authenticated) -->
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+<div style="width:100%; min-height:100vh; display:flex; background:#EFEAE0;">
+
+  <!-- ===== LEFT RAIL ===== -->
+  <div style="width:88px; flex:0 0 88px; background:#23201B; display:flex; flex-direction:column; align-items:center; padding:22px 0; gap:8px; position:sticky; top:0; height:100vh;">
+    <div style="width:46px; height:46px; border-radius:14px; background:linear-gradient(150deg,#6B62F5,#4C43D9); display:flex; align-items:center; justify-content:center; font-family:'Bricolage Grotesque'; font-weight:800; color:#fff; font-size:22px; box-shadow:0 6px 18px rgba(76,67,217,.5); margin-bottom:14px;">J</div>
+    <button onClick="{{ goHome }}" title="Home" style="{{ navHomeStyle }}">⌂</button>
+    <button onClick="{{ goLibrary }}" title="Syllabus Library" style="{{ navLibStyle }}">▤</button>
+    <button onClick="{{ goTracker }}" title="Progress Tracker" style="{{ navTrackStyle }}">◔</button>
+    <div style="flex:1;"></div>
+    <button onClick="{{ toggleMute }}" title="Mute voice" style="width:52px; height:52px; border-radius:16px; border:none; cursor:pointer; font-size:20px; background:{{ muteBg }}; color:{{ muteColor }};">{{ muteIcon }}</button>
+    <button onClick="{{ doLogout }}" title="Logout" style="width:52px; height:52px; border-radius:16px; border:none; cursor:pointer; font-size:18px; background:transparent; color:#8A8172; margin-top:4px;">⏻</button>
+  </div>
+
+  <!-- ===== MAIN ===== -->
+  <div style="flex:1; min-width:0; height:100vh; overflow-y:auto;">
+
+    <!-- HOME -->
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <div style="max-width:980px; margin:0 auto; padding:54px 48px 80px; animation:jfade .4s ease;">
+      <div style="font-family:'Bricolage Grotesque'; font-weight:500; font-size:15px; letter-spacing:.14em; text-transform:uppercase; color:#8A8172;">IB MYP · Self-Learning Studio</div>
+      <h1 style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:44px; line-height:1.05; margin:10px 0 4px; letter-spacing:-.02em;">{{ greeting }}</h1>
+      <p style="font-size:18px; color:#6B6459; margin:0 0 16px; max-width:620px;">{{ homeSub }}</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:30px; align-items:center;">
+        <span style="font-size:13px; color:#8A8172; font-weight:600;">Inside each lesson:</span>
+        <span style="background:#fff; border:1px solid #E7E1D6; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; color:#4C43D9;">🧭 Canvas</span>
+        <span style="background:#fff; border:1px solid #E7E1D6; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; color:#4C43D9;">📝 Quiz</span>
+        <span style="background:#fff; border:1px solid #E7E1D6; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; color:#4C43D9;">🗂 Flashcards</span>
+        <span style="background:#fff; border:1px solid #E7E1D6; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; color:#4C43D9;">▶ Videos</span>
+        <span style="background:#fff; border:1px solid #E7E1D6; padding:5px 12px; border-radius:20px; font-size:13px; font-weight:700; color:#4C43D9;">🕸 Mind Map</span>
+      </div>
+
+      <!-- resume / due row -->
+      <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:20px; margin-bottom:40px;">
+        <div style="background:linear-gradient(150deg,#4C43D9,#6B62F5); border-radius:24px; padding:28px 30px; color:#fff; box-shadow:0 18px 40px -18px rgba(76,67,217,.7); display:flex; flex-direction:column; justify-content:space-between; min-height:170px;">
+          <div>
+            <div style="font-size:13px; letter-spacing:.12em; text-transform:uppercase; opacity:.8; font-family:'Bricolage Grotesque';">Continue learning</div>
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:27px; margin-top:8px; line-height:1.1;">{{ resumeTitle }}</div>
+            <div style="opacity:.85; margin-top:6px; font-size:15px;">{{ resumeSub }}</div>
+          </div>
+          <button onClick="{{ resumeGo }}" style="align-self:flex-start; margin-top:20px; background:#fff; color:#4C43D9; border:none; border-radius:12px; padding:12px 22px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Public Sans';">Resume with Jarvis →</button>
+        </div>
+        <div style="background:#fff; border-radius:24px; padding:24px; border:1px solid #E7E1D6;">
+          <div style="display:flex; align-items:center; gap:8px; font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px;"><span style="color:#E8823A;">↻</span> Revision due</div>
+          <div style="font-size:13px; color:#8A8172; margin-bottom:12px;">Spaced repetition keeps it in long-term memory.</div>
+          <sc-for list="{{ dueTopics }}" as="d" hint-placeholder-count="2">
+            <button onClick="{{ d.go }}" style="width:100%; text-align:left; background:#FBF4EC; border:1px solid #F0E2D2; border-radius:12px; padding:11px 13px; margin-bottom:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:600; font-size:14px;">{{ d.name }}</span>
+              <span style="font-size:11px; color:#E8823A; font-weight:700;">{{ d.when }}</span>
+            </button>
+          </sc-for>
+          <sc-if value="{{ noDue }}" hint-placeholder-val="{{ false }}"><div style="font-size:13px; color:#A79E8E; padding:8px 2px;">Nothing due — you're on track. 🎉</div></sc-if>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px;">
+        <h2 style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:22px; margin:0;">Your subjects</h2>
+        <button onClick="{{ goLibrary }}" style="background:none; border:none; color:#4C43D9; font-weight:700; cursor:pointer; font-size:14px;">Manage syllabus →</button>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px;">
+        <sc-for list="{{ subjects }}" as="s" hint-placeholder-count="3">
+          <div style="background:#fff; border-radius:22px; border:1px solid #E7E1D6; padding:22px; animation:jfade .4s ease;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div style="width:46px; height:46px; border-radius:14px; background:{{ s.soft }}; display:flex; align-items:center; justify-content:center; font-size:23px;">{{ s.icon }}</div>
+              <div style="position:relative; width:52px; height:52px;">
+                <svg viewBox="0 0 52 52" style="width:52px; height:52px; transform:rotate(-90deg);">
+                  <circle cx="26" cy="26" r="22" fill="none" stroke="#EEE9DF" stroke-width="6"></circle>
+                  <circle cx="26" cy="26" r="22" fill="none" stroke="{{ s.color }}" stroke-width="6" stroke-linecap="round" stroke-dasharray="{{ s.circ }}" stroke-dashoffset="{{ s.off }}"></circle>
+                </svg>
+                <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; font-family:'Bricolage Grotesque';">{{ s.pct }}</div>
+              </div>
+            </div>
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:19px; margin:14px 0 3px;">{{ s.name }}</div>
+            <div style="font-size:13px; color:#8A8172; margin-bottom:6px;">{{ s.topicCount }} topics · {{ s.masteredCount }} mastered</div>
+            <div style="display:flex; gap:5px; margin-bottom:10px;">
+              <span style="background:#ECEBFB; color:#4C43D9; font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px;">📝 Quiz</span>
+              <span style="background:#E4F3EC; color:#1E7A50; font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px;">🗂 Cards</span>
+              <span style="background:#FDECEA; color:#C0392B; font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px;">▶ Videos</span>
+              <span style="background:#EFE9FB; color:#7A5AC2; font-size:11px; font-weight:700; padding:3px 8px; border-radius:20px;">🕸 Map</span>
+            </div>
+            <sc-for list="{{ s.topics }}" as="t" hint-placeholder-count="3">
+              <button onClick="{{ t.go }}" style="width:100%; text-align:left; background:#FAF8F3; border:1px solid #EEE9DF; border-radius:11px; padding:10px 12px; margin-bottom:7px; cursor:pointer; display:flex; align-items:center; gap:10px;" style-hover="background:#ECEBFB; border-color:#C5C0F0;">
+                <span style="width:9px; height:9px; border-radius:50%; background:{{ t.dot }}; flex:0 0 9px;"></span>
+                <span style="font-weight:600; font-size:14px; flex:1;">{{ t.name }}</span>
+                <span style="font-size:11px; color:#A79E8E;">{{ t.badge }}</span>
+                <span style="font-size:13px; color:#4C43D9; font-weight:700;">→</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- LIBRARY -->
+    <sc-if value="{{ isLibrary }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:860px; margin:0 auto; padding:54px 48px 80px; animation:jfade .4s ease;">
+      <h1 style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:38px; margin:0 0 4px; letter-spacing:-.02em;">Syllabus Library</h1>
+      <p style="font-size:17px; color:#6B6459; margin:0 0 30px; max-width:600px;">Jarvis grounds every explanation in <strong>your</strong> curriculum. Drop in the <code>.md</code> files for your units — they're indexed on-device for retrieval.</p>
+
+      <div onDrop="{{ onDrop }}" onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" style="border:2px dashed {{ dropBorder }}; background:{{ dropBg }}; border-radius:22px; padding:40px; text-align:center; transition:.15s;">
+        <div style="font-size:40px;">📄</div>
+        <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:20px; margin-top:8px;">Drag &amp; drop your .md syllabus files</div>
+        <div style="color:#8A8172; font-size:14px; margin:6px 0 18px;">Markdown files, chunked by heading and indexed with TF-IDF retrieval.</div>
+        <label style="display:inline-block; background:#4C43D9; color:#fff; border-radius:12px; padding:12px 22px; font-weight:700; cursor:pointer;">
+          Choose files
+          <input type="file" accept=".md,.markdown,.txt" multiple onChange="{{ onFiles }}" style="display:none;">
+        </label>
+      </div>
+
+      <div style="margin:26px 0; padding:20px 22px; background:#fff; border:1px solid #E7E1D6; border-radius:18px;">
+        <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:15px; margin-bottom:4px;">Google Drive folder</div>
+        <div style="font-size:13px; color:#8A8172; margin-bottom:12px;">Paste a shared Drive link. In this preview, syncing falls back to file upload above.</div>
+        <div style="display:flex; gap:10px;">
+          <input value="{{ driveLink }}" onInput="{{ onDriveInput }}" placeholder="https://drive.google.com/drive/folders/…" style="flex:1; border:1px solid #E0D9CC; border-radius:11px; padding:11px 13px; font-size:14px; font-family:'Public Sans';">
+          <button onClick="{{ onDriveConnect }}" style="background:#23201B; color:#fff; border:none; border-radius:11px; padding:0 20px; font-weight:700; cursor:pointer;">Connect</button>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:baseline; justify-content:space-between; margin:8px 0 14px;">
+        <h2 style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:20px; margin:0;">Indexed files</h2>
+        <span style="font-size:13px; color:#8A8172;">{{ chunkCount }} chunks retrievable</span>
+      </div>
+      <sc-for list="{{ files }}" as="f" hint-placeholder-count="3">
+        <div style="display:flex; align-items:center; gap:12px; background:#fff; border:1px solid #E7E1D6; border-radius:14px; padding:14px 16px; margin-bottom:10px;">
+          <span style="font-size:20px;">{{ f.icon }}</span>
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:15px;">{{ f.name }}</div>
+            <div style="font-size:12px; color:#8A8172;">{{ f.meta }}</div>
+          </div>
+          <span style="font-size:12px; font-weight:700; color:#2E9E6B;">● indexed</span>
+        </div>
+      </sc-for>
+    </div>
+    </sc-if>
+
+    <!-- TRACKER -->
+    <sc-if value="{{ isTracker }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:940px; margin:0 auto; padding:54px 48px 80px; animation:jfade .4s ease;">
+      <h1 style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:38px; margin:0 0 4px; letter-spacing:-.02em;">Progress Tracker</h1>
+      <p style="font-size:17px; color:#6B6459; margin:0 0 30px;">Where you're strong, where to revise, and what's due next.</p>
+
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:32px;">
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:18px;"><div style="font-size:32px; font-family:'Bricolage Grotesque'; font-weight:800; color:#4C43D9;">{{ statTopics }}</div><div style="font-size:13px; color:#8A8172;">Topics started</div></div>
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:18px;"><div style="font-size:32px; font-family:'Bricolage Grotesque'; font-weight:800; color:#2E9E6B;">{{ statMastered }}</div><div style="font-size:13px; color:#8A8172;">Mastered (75%+)</div></div>
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:18px;"><div style="font-size:32px; font-family:'Bricolage Grotesque'; font-weight:800; color:#E8823A;">{{ statDue }}</div><div style="font-size:13px; color:#8A8172;">Due for revision</div></div>
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:18px;"><div style="font-size:32px; font-family:'Bricolage Grotesque'; font-weight:800; color:#C0392B;">{{ statMiscon }}</div><div style="font-size:13px; color:#8A8172;">Misconceptions</div></div>
+      </div>
+
+      <h2 style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:20px; margin:0 0 14px;">Mastery by topic</h2>
+      <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:8px 20px; margin-bottom:30px;">
+        <sc-for list="{{ allTopics }}" as="t" hint-placeholder-count="4">
+          <div style="display:flex; align-items:center; gap:14px; padding:13px 0; border-bottom:1px solid #F1ECE2;">
+            <span style="font-size:18px;">{{ t.icon }}</span>
+            <div style="flex:1;"><div style="font-weight:600; font-size:15px;">{{ t.name }}</div><div style="font-size:12px; color:#A79E8E;">{{ t.subject }}</div></div>
+            <div style="width:180px; height:9px; background:#EEE9DF; border-radius:6px; overflow:hidden;"><div style="height:100%; width:{{ t.pct }}; background:{{ t.color }}; border-radius:6px;"></div></div>
+            <div style="width:44px; text-align:right; font-weight:700; font-size:14px; color:{{ t.color }};">{{ t.pct }}</div>
+            <button onClick="{{ t.go }}" style="background:#F3F1FB; color:#4C43D9; border:none; border-radius:9px; padding:7px 12px; font-weight:700; font-size:12px; cursor:pointer;">Revise</button>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:22px;">
+          <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px; margin-bottom:12px; color:#C0392B;">⚠ Misconceptions to fix</div>
+          <sc-for list="{{ misconLog }}" as="m" hint-placeholder-count="2"><div style="font-size:14px; padding:9px 0; border-bottom:1px solid #F1ECE2;"><strong>{{ m.topic }}:</strong> {{ m.text }}</div></sc-for>
+          <sc-if value="{{ noMiscon }}" hint-placeholder-val="{{ true }}"><div style="font-size:13px; color:#A79E8E;">None logged yet.</div></sc-if>
+        </div>
+        <div style="background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:22px;">
+          <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:16px; margin-bottom:12px; color:#E8823A;">↻ Spaced-repetition schedule</div>
+          <sc-for list="{{ schedule }}" as="s" hint-placeholder-count="3"><div style="display:flex; justify-content:space-between; font-size:14px; padding:9px 0; border-bottom:1px solid #F1ECE2;"><span>{{ s.name }}</span><span style="color:#E8823A; font-weight:700;">{{ s.when }}</span></div></sc-for>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- LESSON -->
+    <sc-if value="{{ isLesson }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex; height:100vh;">
+      <!-- conversation column -->
+      <div style="flex:0 0 46%; max-width:560px; display:flex; flex-direction:column; border-right:1px solid #E2DBCE; background:#F6F3EC;">
+        <div style="padding:18px 24px; border-bottom:1px solid #E2DBCE; display:flex; align-items:center; gap:12px; background:#fff;">
+          <button onClick="{{ goHome }}" style="background:#F1ECE2; border:none; width:34px; height:34px; border-radius:10px; cursor:pointer; font-size:16px;">←</button>
+          <div style="flex:1;"><div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px;">{{ activeTopicName }}</div><div style="font-size:12px; color:#8A8172;">{{ activeSubjectName }} · with Jarvis</div></div>
+          <div style="position:relative; width:40px; height:40px;">
+            <svg viewBox="0 0 40 40" style="width:40px;height:40px;transform:rotate(-90deg);"><circle cx="20" cy="20" r="16" fill="none" stroke="#EEE9DF" stroke-width="5"></circle><circle cx="20" cy="20" r="16" fill="none" stroke="#2E9E6B" stroke-width="5" stroke-linecap="round" stroke-dasharray="{{ mCirc }}" stroke-dashoffset="{{ mOff }}"></circle></svg>
+            <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px;">{{ masteryPct }}</div>
+          </div>
+        </div>
+
+        <div ref="{{ chatRef }}" style="flex:1; overflow-y:auto; padding:22px 24px; display:flex; flex-direction:column; gap:14px;">
+          <sc-for list="{{ messages }}" as="m" hint-placeholder-count="2">
+            <div style="align-self:{{ m.align }}; max-width:88%;">
+              <div style="font-size:11px; color:#A79E8E; margin-bottom:3px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; text-align:{{ m.talign }};">{{ m.who }}</div>
+              <div style="background:{{ m.bg }}; color:{{ m.fg }}; padding:12px 15px; border-radius:{{ m.radius }}; font-size:15px; line-height:1.5; white-space:pre-wrap;">{{ m.text }}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+            <div style="align-self:flex-start; background:#fff; border:1px solid #E7E1D6; padding:14px 18px; border-radius:16px 16px 16px 4px; display:flex; gap:5px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:#4C43D9;animation:jdot 1.2s infinite;"></span>
+              <span style="width:8px;height:8px;border-radius:50%;background:#4C43D9;animation:jdot 1.2s infinite .2s;"></span>
+              <span style="width:8px;height:8px;border-radius:50%;background:#4C43D9;animation:jdot 1.2s infinite .4s;"></span>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="padding:16px 20px; border-top:1px solid #E2DBCE; background:#fff;">
+          <sc-if value="{{ speaking }}" hint-placeholder-val="{{ false }}"><div onClick="{{ interruptSpeech }}" style="text-align:center; font-size:13px; color:#4C43D9; font-weight:700; margin-bottom:8px; cursor:pointer; user-select:none;">🔊 Jarvis is speaking — tap to interrupt</div></sc-if>
+          <sc-if value="{{ listening }}" hint-placeholder-val="{{ false }}"><div style="text-align:center; font-size:13px; color:#E8823A; font-weight:700; margin-bottom:8px;">● Listening… speak now</div></sc-if>
+          <div style="display:flex; gap:10px; align-items:flex-end;">
+            <button onClick="{{ toggleMic }}" style="flex:0 0 52px; height:52px; border-radius:16px; border:none; cursor:pointer; font-size:22px; background:{{ micBg }}; color:{{ micColor }}; position:relative;">
+              <sc-if value="{{ listening }}" hint-placeholder-val="{{ false }}"><span style="position:absolute; inset:-4px; border-radius:20px; border:2px solid #E8823A; animation:jpulse 1.1s infinite;"></span></sc-if>
+              🎙
+            </button>
+            <textarea value="{{ chatInput }}" onInput="{{ onInput }}" onKeyDown="{{ onKeyDown }}" placeholder="Ask Jarvis, or answer aloud…" rows="1" style="flex:1; resize:none; border:1px solid #E0D9CC; border-radius:14px; padding:14px 15px; font-size:15px; font-family:'Public Sans'; max-height:120px;"></textarea>
+            <button onClick="{{ onSend }}" style="flex:0 0 52px; height:52px; border-radius:16px; border:none; cursor:pointer; font-size:20px; background:#4C43D9; color:#fff;">↑</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- learning canvas column -->
+      <div style="flex:1; min-width:0; overflow-y:auto; padding:0 0 60px; background:#EFEAE0; display:flex; flex-direction:column;">
+
+        <!-- tab bar -->
+        <div style="display:flex; background:#fff; border-bottom:1px solid #E7E1D6; padding:0 20px; position:sticky; top:0; z-index:10;">
+          <button onClick="{{ setTabCanvas }}" style="{{ tabCanStyle }}">🧭 Canvas</button>
+          <button onClick="{{ setTabQuiz }}" style="{{ tabQuizStyle }}">📝 Quiz</button>
+          <button onClick="{{ setTabFC }}" style="{{ tabFCStyle }}">🗂 Flashcards</button>
+          <button onClick="{{ setTabVideos }}" style="{{ tabVidStyle }}">▶ Videos</button>
+          <button onClick="{{ setTabMindMap }}" style="{{ tabMMStyle }}">🕸 Mind Map</button>
+        </div>
+
+        <!-- CANVAS TAB -->
+        <sc-if value="{{ isTabCanvas }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:26px 30px 40px;">
+        <!-- step rail -->
+        <div style="display:flex; gap:6px; margin-bottom:22px; flex-wrap:wrap;">
+          <sc-for list="{{ stages }}" as="st" hint-placeholder-count="8">
+            <div style="display:flex; align-items:center; gap:7px; background:{{ st.bg }}; color:{{ st.fg }}; border:1px solid {{ st.border }}; padding:7px 12px; border-radius:20px; font-size:12px; font-weight:700;"><span>{{ st.icon }}</span>{{ st.name }}</div>
+          </sc-for>
+        </div>
+        <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:14px; letter-spacing:.06em; text-transform:uppercase; color:#8A8172; margin-bottom:14px;">Learning canvas</div>
+
+        <!-- Concept map -->
+        <sc-if value="{{ hasCM }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fff; border:1px solid #E7E1D6; border-radius:20px; padding:24px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="display:flex; align-items:center; gap:8px; font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:4px;">🗺 The Big Picture</div>
+            <div style="text-align:center; background:linear-gradient(150deg,#4C43D9,#6B62F5); color:#fff; border-radius:16px; padding:16px; font-family:'Bricolage Grotesque'; font-weight:700; font-size:18px; margin:12px 0 18px;">{{ cm.core }}</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <div><div style="font-size:12px; font-weight:800; color:#4C43D9; text-transform:uppercase; letter-spacing:.05em; margin-bottom:7px;">Key concepts</div><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ cm.keyConcepts }}" as="c" hint-placeholder-count="2"><span style="background:#ECEBFB; color:#372FB0; padding:5px 11px; border-radius:20px; font-size:13px; font-weight:600;">{{ c }}</span></sc-for></div></div>
+              <div><div style="font-size:12px; font-weight:800; color:#E8823A; text-transform:uppercase; letter-spacing:.05em; margin-bottom:7px;">Related concepts</div><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ cm.related }}" as="c" hint-placeholder-count="2"><span style="background:#FBE9DC; color:#B5561F; padding:5px 11px; border-radius:20px; font-size:13px; font-weight:600;">{{ c }}</span></sc-for></div></div>
+              <div><div style="font-size:12px; font-weight:800; color:#6B6459; text-transform:uppercase; letter-spacing:.05em; margin-bottom:7px;">Vocabulary</div><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ cm.vocab }}" as="c" hint-placeholder-count="3"><span style="background:#F1ECE2; color:#5A5347; padding:5px 11px; border-radius:20px; font-size:13px; font-weight:600;">{{ c }}</span></sc-for></div></div>
+              <div><div style="font-size:12px; font-weight:800; color:#2E9E6B; text-transform:uppercase; letter-spacing:.05em; margin-bottom:7px;">Real-world links</div><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ cm.applications }}" as="c" hint-placeholder-count="2"><span style="background:#E4F3EC; color:#1E7A50; padding:5px 11px; border-radius:20px; font-size:13px; font-weight:600;">{{ c }}</span></sc-for></div></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- Inquiry -->
+        <sc-if value="{{ hasInquiry }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#FBF4EC; border:1px solid #F0E2D2; border-radius:20px; padding:22px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:12px;">🤔 Think first</div>
+            <sc-for list="{{ inquiryList }}" as="q" hint-placeholder-count="2"><div style="display:flex; gap:10px; margin-bottom:10px; font-size:15px; line-height:1.45;"><span style="color:#E8823A; font-weight:800;">?</span>{{ q }}</div></sc-for>
+          </div>
+        </sc-if>
+
+        <!-- Layers -->
+        <sc-if value="{{ hasLayers }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fff; border:1px solid #E7E1D6; border-radius:20px; padding:24px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:14px;">📚 Explained in layers</div>
+            <sc-for list="{{ layers }}" as="l" hint-placeholder-count="3">
+              <div style="display:flex; gap:14px; margin-bottom:14px;">
+                <div style="flex:0 0 34px; height:34px; border-radius:10px; background:{{ l.bg }}; color:{{ l.fg }}; display:flex; align-items:center; justify-content:center; font-weight:800; font-family:'Bricolage Grotesque';">{{ l.level }}</div>
+                <div style="flex:1;"><div style="font-weight:700; font-size:15px; margin-bottom:2px;">{{ l.title }}</div><div style="font-size:14px; color:#4A453C; line-height:1.5;">{{ l.text }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- IB concepts -->
+        <sc-if value="{{ hasIB }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#23201B; color:#fff; border-radius:20px; padding:24px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:16px;">◆ IB conceptual lens</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <div><div style="font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.08em;">Key concept</div><div style="font-weight:700; font-size:16px; margin-top:3px; color:#9B93FF;">{{ ib.key }}</div></div>
+              <div><div style="font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.08em;">Related concept</div><div style="font-weight:700; font-size:16px; margin-top:3px; color:#F5A66B;">{{ ib.related }}</div></div>
+              <div><div style="font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.08em;">Global context</div><div style="font-weight:700; font-size:16px; margin-top:3px; color:#6FD69C;">{{ ib.global }}</div></div>
+              <div style="grid-column:1/3;"><div style="font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.08em;">Statement of inquiry</div><div style="font-size:15px; margin-top:3px; line-height:1.45; font-style:italic;">"{{ ib.soi }}"</div></div>
+            </div>
+            <sc-if value="{{ hasATL }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,.15);"><div style="font-size:11px; opacity:.6; text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px;">ATL skills you're using</div><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ atlList }}" as="a" hint-placeholder-count="2"><span style="background:rgba(255,255,255,.12); padding:5px 11px; border-radius:20px; font-size:13px;">{{ a }}</span></sc-for></div></div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- Misconceptions -->
+        <sc-if value="{{ hasMiscon }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#FDF0EE; border:1px solid #F5D5CF; border-radius:20px; padding:22px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:12px; color:#C0392B;">⚠ Watch out for this</div>
+            <sc-for list="{{ misconceptions }}" as="m" hint-placeholder-count="1">
+              <div style="margin-bottom:12px;"><div style="font-size:14px; font-weight:700;">Many think: "{{ m.think }}"</div><div style="font-size:14px; color:#4A453C; line-height:1.5; margin-top:3px;">{{ m.why }}</div></div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- Checkpoint -->
+        <sc-if value="{{ hasCheckpoint }}" hint-placeholder-val="{{ false }}">
+          <div style="background:linear-gradient(150deg,#2E9E6B,#38B87C); color:#fff; border-radius:20px; padding:24px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-size:12px; opacity:.85; text-transform:uppercase; letter-spacing:.08em; font-weight:700;">Mastery checkpoint · Level {{ cp.level }}</div>
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:19px; margin:8px 0 6px; line-height:1.25;">{{ cp.question }}</div>
+            <div style="font-size:14px; opacity:.9;">Answer by voice 🎙 or type — Jarvis will check your thinking.</div>
+          </div>
+        </sc-if>
+
+        <!-- Reinforcement -->
+        <sc-if value="{{ hasReinf }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fff; border:1px solid #E7E1D6; border-radius:20px; padding:24px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:14px;">✅ Lock it in</div>
+            <div style="font-size:15px; line-height:1.55; margin-bottom:12px;">{{ reinf.summary }}</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+              <div style="background:#E4F3EC; border-radius:12px; padding:13px;"><div style="font-size:11px; font-weight:800; color:#1E7A50; text-transform:uppercase; margin-bottom:3px;">Real-world use</div><div style="font-size:14px;">{{ reinf.application }}</div></div>
+              <div style="background:#ECEBFB; border-radius:12px; padding:13px;"><div style="font-size:11px; font-weight:800; color:#372FB0; text-transform:uppercase; margin-bottom:3px;">Challenge</div><div style="font-size:14px;">{{ reinf.challenge }}</div></div>
+              <div style="background:#FBE9DC; border-radius:12px; padding:13px;"><div style="font-size:11px; font-weight:800; color:#B5561F; text-transform:uppercase; margin-bottom:3px;">Memory trick</div><div style="font-size:14px;">{{ reinf.trick }}</div></div>
+              <div style="background:#FBF4EC; border-radius:12px; padding:13px;"><div style="font-size:11px; font-weight:800; color:#8A6D2F; text-transform:uppercase; margin-bottom:3px;">Revision tip</div><div style="font-size:14px;">{{ reinf.tip }}</div></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- Reflection -->
+        <sc-if value="{{ hasReflection }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#F3F1FB; border:1px solid #DEDAF5; border-radius:20px; padding:22px; margin-bottom:16px; animation:jfade .4s ease;">
+            <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:17px; margin-bottom:12px; color:#4C43D9;">🌱 Reflect</div>
+            <sc-for list="{{ reflectionList }}" as="r" hint-placeholder-count="2"><div style="font-size:15px; margin-bottom:9px; line-height:1.45;">{{ r }}</div></sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ canvasEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align:center; color:#A79E8E; padding:60px 20px;"><div style="font-size:44px;">🧭</div><div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:18px; margin-top:10px; color:#6B6459;">Your learning canvas fills in as Jarvis teaches.</div><div style="font-size:14px; margin-top:4px;">Say hello, or tell Jarvis what you'd like to learn.</div></div>
+        </sc-if>
+        </div>
+        </sc-if>
+
+        <!-- QUIZ TAB -->
+        <sc-if value="{{ isTabQuiz }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:26px 30px 40px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+            <div><div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:22px;">Chapter Quiz</div><div style="font-size:13px; color:#8A8172;">IB MYP-style questions — recall, application, analysis</div></div>
+            <button onClick="{{ generateQuiz }}" style="background:#4C43D9; color:#fff; border:none; border-radius:14px; padding:12px 20px; font-weight:700; font-size:14px; cursor:pointer;">{{ quizBtnLabel }}</button>
+          </div>
+          <sc-if value="{{ hasQuiz }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff; border:1px solid #E7E1D6; border-radius:16px; padding:14px 20px; margin-bottom:18px; display:flex; gap:20px; align-items:center;">
+              <div style="text-align:center;"><div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:32px; color:#4C43D9;">{{ quizScore }}/{{ quizAnswered }}</div><div style="font-size:12px; color:#8A8172;">answered correct</div></div>
+              <div style="flex:1; height:10px; background:#EEE9DF; border-radius:6px; overflow:hidden;"><div style="height:100%; background:#2E9E6B; border-radius:6px; width:{{ quizScoreBar }};"></div></div>
+            </div>
+            <sc-for list="{{ quizItems }}" as="q" hint-placeholder-count="4">
+              <div style="background:{{ q.bg }}; border:1px solid #E7E1D6; border-radius:18px; padding:22px; margin-bottom:14px; animation:jfade .3s ease;">
+                <div style="display:flex; gap:10px; align-items:flex-start; margin-bottom:14px;">
+                  <span style="font-size:16px; color:{{ q.resultColor }}; font-weight:800; min-width:20px;">{{ q.resultIcon }}</span>
+                  <div style="font-weight:700; font-size:16px; line-height:1.4;">{{ q.question }}</div>
+                </div>
+                <sc-if value="{{ q.isMcq }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <button onClick="{{ q.answerA }}" style="background:#F6F3EC; border:1px solid #E7E1D6; border-radius:12px; padding:11px 13px; text-align:left; cursor:pointer; font-size:14px; font-weight:600;">{{ q.optA }}</button>
+                    <button onClick="{{ q.answerB }}" style="background:#F6F3EC; border:1px solid #E7E1D6; border-radius:12px; padding:11px 13px; text-align:left; cursor:pointer; font-size:14px; font-weight:600;">{{ q.optB }}</button>
+                    <button onClick="{{ q.answerC }}" style="background:#F6F3EC; border:1px solid #E7E1D6; border-radius:12px; padding:11px 13px; text-align:left; cursor:pointer; font-size:14px; font-weight:600;">{{ q.optC }}</button>
+                    <button onClick="{{ q.answerD }}" style="background:#F6F3EC; border:1px solid #E7E1D6; border-radius:12px; padding:11px 13px; text-align:left; cursor:pointer; font-size:14px; font-weight:600;">{{ q.optD }}</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ q.answered }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:12px; padding:12px 14px; background:rgba(0,0,0,.04); border-radius:12px;">
+                    <div style="font-size:13px; font-weight:700; color:#4C43D9;">Correct answer: {{ q.correctAnswer }}</div>
+                    <div style="font-size:13px; color:#4A453C; margin-top:4px; line-height:1.5;">{{ q.explanation }}</div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ quizLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center; padding:50px; color:#8A8172;"><div style="font-size:36px; animation:jpulse 1.2s infinite;">📝</div><div style="margin-top:10px; font-weight:600;">Generating IB-style questions…</div></div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+        <!-- FLASHCARDS TAB -->
+        <sc-if value="{{ isTabFC }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:26px 30px 40px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+            <div><div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:22px;">Flashcards</div><div style="font-size:13px; color:#8A8172;">Tap to flip — key terms, definitions, IB links</div></div>
+            <button onClick="{{ generateFlashcards }}" style="background:#4C43D9; color:#fff; border:none; border-radius:14px; padding:12px 20px; font-weight:700; font-size:14px; cursor:pointer;">{{ fcBtnLabel }}</button>
+          </div>
+          <sc-if value="{{ hasFC }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center; font-size:13px; color:#8A8172; margin-bottom:14px;">Card {{ fcNum }} of {{ fcTotal }}</div>
+            <div onClick="{{ flipCard }}" style="background:linear-gradient(150deg,#4C43D9,#6B62F5); border-radius:28px; min-height:220px; padding:36px 32px; display:flex; flex-direction:column; justify-content:center; align-items:center; cursor:pointer; box-shadow:0 20px 50px -20px rgba(76,67,217,.6); margin-bottom:18px; animation:jfade .3s ease;">
+              <div style="font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.7); margin-bottom:12px; font-weight:700;">{{ fcLabel }} · tap to flip</div>
+              <div style="font-family:'Bricolage Grotesque'; font-weight:700; font-size:24px; color:#fff; text-align:center; line-height:1.3;">{{ fcFront }}</div>
+              <sc-if value="{{ fcFlipped }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,.25); font-size:14px; color:rgba(255,255,255,.85); text-align:center;">📌 {{ fcCard.example }}</div>
+                <div style="margin-top:8px; font-size:13px; color:rgba(255,255,255,.65);">IB link: {{ fcCard.ib_link }}</div>
+              </sc-if>
+            </div>
+            <div style="display:flex; gap:12px; justify-content:center;">
+              <button onClick="{{ prevCard }}" style="background:#fff; border:1px solid #E7E1D6; border-radius:14px; padding:12px 24px; font-weight:700; cursor:pointer; font-size:18px;">←</button>
+              <button onClick="{{ flipCard }}" style="background:#ECEBFB; border:none; border-radius:14px; padding:12px 28px; font-weight:700; cursor:pointer; color:#4C43D9;">Flip</button>
+              <button onClick="{{ nextCard }}" style="background:#fff; border:1px solid #E7E1D6; border-radius:14px; padding:12px 24px; font-weight:700; cursor:pointer; font-size:18px;">→</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ fcLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center; padding:50px; color:#8A8172;"><div style="font-size:36px; animation:jpulse 1.2s infinite;">🗂</div><div style="margin-top:10px; font-weight:600;">Generating flashcards…</div></div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+        <!-- VIDEOS TAB -->
+        <sc-if value="{{ isTabVideos }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:26px 30px 40px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+            <div><div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:22px;">Explanatory Videos</div><div style="font-size:13px; color:#8A8172;">Curated YouTube resources — concept-specific, Grade 7 IB level</div></div>
+            <button onClick="{{ generateVideos }}" style="background:#C0392B; color:#fff; border:none; border-radius:14px; padding:12px 20px; font-weight:700; font-size:14px; cursor:pointer;">{{ vidBtnLabel }}</button>
+          </div>
+          <sc-if value="{{ hasVideos }}" hint-placeholder-val="{{ false }}">
+            <sc-for list="{{ videoItems }}" as="v" hint-placeholder-count="4">
+              <a href="{{ v.url }}" target="_blank" style="display:block; background:#fff; border:1px solid #E7E1D6; border-radius:18px; padding:18px 20px; margin-bottom:12px; text-decoration:none; animation:jfade .3s ease;">
+                <div style="display:flex; gap:14px; align-items:flex-start;">
+                  <div style="width:48px; height:48px; border-radius:14px; background:#FDECEA; display:flex; align-items:center; justify-content:center; font-size:22px; flex:0 0 48px;">▶</div>
+                  <div style="flex:1;">
+                    <div style="font-weight:700; font-size:15px; color:#23201B; line-height:1.3;">{{ v.title }}</div>
+                    <div style="font-size:12px; color:#8A8172; margin-top:2px;">{{ v.channelTimestamp }}</div>
+                    <div style="font-size:13px; color:#4A453C; margin-top:6px; line-height:1.45;">{{ v.reason }}</div>
+                    <div style="display:inline-block; margin-top:8px; background:#FBE9DC; color:#B5561F; font-size:12px; font-weight:700; padding:4px 10px; border-radius:20px;">{{ v.concept }}</div>
+                  </div>
+                  <div style="color:#C0392B; font-size:18px; flex:0 0 18px;">↗</div>
+                </div>
+              </a>
+            </sc-for>
+            <div style="font-size:12px; color:#A79E8E; text-align:center; margin-top:8px;">Links open YouTube — verify content is appropriate before watching.</div>
+          </sc-if>
+          <sc-if value="{{ videosLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center; padding:50px; color:#8A8172;"><div style="font-size:36px; animation:jpulse 1.2s infinite;">▶</div><div style="margin-top:10px; font-weight:600;">Finding the best videos…</div></div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+        <!-- MIND MAP TAB -->
+        <sc-if value="{{ isTabMindMap }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:26px 30px 40px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;">
+            <div><div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:22px;">Mind Map</div><div style="font-size:13px; color:#8A8172;">Full conceptual landscape of this topic</div></div>
+            <button onClick="{{ generateMindMap }}" style="background:#7A5AC2; color:#fff; border:none; border-radius:14px; padding:12px 20px; font-weight:700; font-size:14px; cursor:pointer;">{{ mmBtnLabel }}</button>
+          </div>
+          <sc-if value="{{ hasMindMap }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:20px;">
+              <div style="background:linear-gradient(150deg,#23201B,#3A362E); color:#fff; border-radius:24px; padding:18px 36px; font-family:'Bricolage Grotesque'; font-weight:800; font-size:22px; box-shadow:0 12px 30px -12px rgba(0,0,0,.5);">{{ mmCenter }}</div>
+              <div style="width:2px; height:20px; background:#CFC7B8;"></div>
+              <div style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; width:100%;">
+                <sc-for list="{{ mmBranches }}" as="b" hint-placeholder-count="5">
+                  <div style="background:#fff; border:2px solid {{ b.color }}; border-radius:20px; padding:16px 18px; min-width:180px; max-width:220px; flex:1; animation:jfade .4s ease;">
+                    <div style="font-family:'Bricolage Grotesque'; font-weight:800; font-size:15px; color:{{ b.color }}; margin-bottom:10px; border-bottom:1px solid #F1ECE2; padding-bottom:8px;">{{ b.label }}</div>
+                    <sc-for list="{{ b.children }}" as="c" hint-placeholder-count="3">
+                      <div style="display:flex; align-items:flex-start; gap:6px; font-size:13px; margin-bottom:6px; line-height:1.35;"><span style="color:{{ b.color }}; font-weight:700; flex:0 0 8px; margin-top:2px;">•</span>{{ c }}</div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ mindMapLoading }}" hint-placeholder-val="{{ false }}">
+            <div style="text-align:center; padding:50px; color:#8A8172;"><div style="font-size:36px; animation:jpulse 1.2s infinite;">🕸</div><div style="margin-top:10px; font-weight:600;">Building concept map…</div></div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.chatRef = React.createRef();
+    this.recog = null;
+    this.state = {
+      screen: 'home',
+      muted: false,
+      listening: false,
+      speaking: false,
+      thinking: false,
+      chatInput: '',
+      driveLink: '',
+      dragOver: false,
+      activeSubject: null,
+      activeTopic: null,
+      messages: [],
+      scaffold: {},
+      stageIndex: 0,
+      files: [],
+      chunks: [],
+      subjects: [],
+      tracker: {},
+      greetingName: 'Aarav',
+      queue: [],
+      lessonTab: 'canvas',
+      // auth
+      authScreen: 'checking', // checking | login | app | admin
+      isAdminRoute: false,
+      currentUser: null,
+      loginEmail: '', loginPass: '', loginError: '', loginLoading: false,
+      regName: '', regEmail: '', regPass: '', regError: '', regScreen: false,
+      // admin
+      adminTab: 'users',
+      adminUsers: [],
+      auditLog: [],
+      newUserName: '', newUserEmail: '', newUserPass: '', newUserRole: 'student', newUserError: '',
+      editUserId: null, editUserName: '', editUserEmail: '', editUserRole: '', editUserPass: '', editError: '',
+      quizData: [], quizLoading: false, quizState: {},
+      flashcards: [], fcLoading: false, fcIndex: 0, fcFlipped: false,
+      videos: [], videosLoading: false,
+      mindMap: null, mindMapLoading: false
+    };
+  }
+
+  componentDidMount(){
+    // restore tutor progress
+    try {
+      const saved = JSON.parse(localStorage.getItem('jarvis_v1')||'null');
+      if(saved){ this.setState({tracker: saved.tracker||{}, muted: !!saved.muted}); }
+    } catch(e){}
+    // init auth
+    this.initAuth();
+    // load syllabus (saved custom or sample)
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem('jarvis_syllabus')||'null'); } catch(e){}
+    const md = raw && raw.length ? raw : this.sampleSyllabus();
+    this.ingest(md);
+    // voice
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(SR){
+      const r = new SR();
+      r.continuous = false; r.interimResults = true; r.lang = 'en-US';
+      r.onresult = (e)=>{
+        let t=''; for(let i=e.resultIndex;i<e.results.length;i++) t+=e.results[i][0].transcript;
+        this.setState({chatInput: t});
+        if(e.results[e.results.length-1].isFinal){ this.setState({listening:false}); setTimeout(()=>this.send(t),200); }
+      };
+      r.onend = ()=> this.setState({listening:false});
+      r.onerror = ()=> this.setState({listening:false});
+      this.recog = r;
+    }
+  }
+
+  persist(){ try{ localStorage.setItem('jarvis_v1', JSON.stringify({tracker:this.state.tracker, muted:this.state.muted})); }catch(e){} }
+
+  /* ---------- syllabus / RAG ---------- */
+  sampleSyllabus(){
+    return [
+      {name:'Sciences — Cells & Systems.md', text:`# Sciences: Cells\n## Cell Theory\nAll living things are made of cells. Cells are the basic unit of life and come from pre-existing cells.\n## Cell Organelles\nThe nucleus controls the cell. Mitochondria release energy through respiration. Chloroplasts (in plants) capture light for photosynthesis. The cell membrane controls what enters and leaves.\n## Diffusion & Osmosis\nDiffusion is the movement of particles from high to low concentration. Osmosis is the diffusion of water across a membrane.\n## Body Systems\nThe circulatory, respiratory and digestive systems work together to keep an organism alive.`},
+      {name:'Mathematics — Ratio & Proportion.md', text:`# Mathematics: Ratio and Proportion\n## Ratios\nA ratio compares two quantities, e.g. 2:3. Ratios can be simplified like fractions.\n## Proportion\nTwo ratios are in proportion when they are equal. Direct proportion means as one increases the other increases at the same rate.\n## Scaling & Maps\nScale drawings and map scales use ratio. Unit rates express a quantity per single unit.\n## Percentages\nPercentages are ratios out of 100 and are used in discounts, interest and data.`},
+      {name:'Individuals & Societies — Trade.md', text:`# Individuals and Societies: Trade and Exchange\n## Why Trade Happens\nPeople and countries trade to get resources they cannot produce themselves. Specialisation increases efficiency.\n## Supply and Demand\nPrices are shaped by how much of something is available and how much people want it.\n## Global Trade\nTrade connects distant regions, spreading goods, ideas and culture but also creating dependence.`}
+    ];
+  }
+  tokenize(s){ return (s.toLowerCase().match(/[a-z0-9]+/g)||[]).filter(w=>w.length>2); }
+  ingest(md){
+    const chunks = [];
+    const files = md.map(f=>{
+      const parts = f.text.split(/\n(?=#{1,3}\s)/);
+      let n=0;
+      parts.forEach(p=>{
+        const hm = p.match(/^#{1,3}\s*(.+)/);
+        const heading = hm? hm[1].trim() : 'Intro';
+        const text = p.replace(/^#{1,3}\s*.+\n?/,'').trim();
+        if(text){ const tf={}; this.tokenize(p).forEach(w=>tf[w]=(tf[w]||0)+1); chunks.push({file:f.name, heading, text, tf}); n++; }
+      });
+      return {name:f.name, count:n};
+    });
+    // subjects from filenames / top headings
+    const palette=[['#4C43D9','#ECEBFB','🔬'],['#2E9E6B','#E4F3EC','📐'],['#E8823A','#FBE9DC','🌍'],['#C0392B','#FDECEA','📖'],['#7A5AC2','#EFE9FB','🎨']];
+    const subjects = md.map((f,i)=>{
+      const title = f.text.match(/^#\s*(.+)/); const nm = title? title[1].split(':')[0].trim() : f.name.replace(/\.md$/,'');
+      const topics = (f.text.match(/^##\s*(.+)/gm)||[]).map(h=>h.replace(/^##\s*/,'').trim());
+      const [color,soft,icon] = palette[i%palette.length];
+      return {id:'s'+i, name:nm, color, soft, icon, topics: topics.map((t,j)=>({id:'s'+i+'t'+j, name:t}))};
+    });
+    this.setState({files, chunks, subjects});
+  }
+  retrieve(query, k=4){
+    const qt = this.tokenize(query); if(!qt.length||!this.state.chunks.length) return [];
+    const N=this.state.chunks.length;
+    const df={}; this.state.chunks.forEach(c=>{ Object.keys(c.tf).forEach(w=>df[w]=(df[w]||0)+1); });
+    const scored = this.state.chunks.map(c=>{
+      let s=0; qt.forEach(w=>{ if(c.tf[w]){ const idf=Math.log(1+N/(df[w]||1)); s+=c.tf[w]*idf; } });
+      return {c,s};
+    }).filter(x=>x.s>0).sort((a,b)=>b.s-a.s).slice(0,k);
+    return scored.map(x=>x.c);
+  }
+
+  /* ---------- navigation ---------- */
+  go(screen){ this.setState({screen}); }
+  openTopic(subjectId, topicId){
+    const subj = this.state.subjects.find(s=>s.id===subjectId);
+    const topic = subj && subj.topics.find(t=>t.id===topicId);
+    if(!subj||!topic) return;
+    const key = topic.id;
+    const existing = this.state.tracker[key];
+    this.setState({screen:'lesson', activeSubject:subj, activeTopic:topic, messages:[], scaffold:{}, chatInput:''}, ()=>{
+      const verb = existing && existing.mastery>=75 ? 'Revise' : (existing? 'Continue' : 'Start');
+      this.send(`${verb} a lesson on "${topic.name}" (${subj.name}). I'm a Grade 7 IB MYP student. Begin by discovering my goal and building the big-picture concept map.`, true);
+    });
+  }
+
+  /* ---------- Claude tutor ---------- */
+  systemPrompt(topic, subject, ctx, tr){
+    return `You are Jarvis, an outstanding IB MYP tutor for a Grade 7 student. You teach for deep understanding, not memorisation, following IB pedagogy: inquiry before explanation, conceptual understanding, real-world application, reflection, ATL skills and learner profile.
+
+You guide the student through this arc across the conversation (do NOT dump everything at once — one or two moves per turn, responsive to the student):
+0 discover goal & prior knowledge → build big-picture concept map → 2-3 inquiry questions → progressive 5-layer explanation → IB conceptual lens (key/related concept, global context, statement of inquiry) + ATL skills → surface likely misconceptions → mastery checkpoints (3 levels, aim 75%) → reflection → reinforcement summary.
+
+TOPIC: ${topic} | SUBJECT: ${subject}
+SYLLABUS CONTEXT (use this to ground teaching; if sparse or empty, self-populate from your own comprehensive IB MYP Grade 7 knowledge — be highly specific to this exact level, complexity, subject, concept and chapter; never be generic):
+"""${ctx||'(none retrieved — draw fully on your IB MYP Grade 7 subject expertise)'}"""
+LEARNER STATE: ${tr}
+
+Keep "say" warm, encouraging and concise (2-5 short sentences) — it is read ALOUD, so write like natural speech, no markdown, no bullet symbols. Ask a question back often. When the student answers a checkpoint, evaluate it and set mastery_delta.
+
+Respond with ONLY a JSON object (no prose, no code fences). Include a field ONLY when it genuinely advances THIS turn:
+{
+ "say": "spoken reply (required)",
+ "stage": 0-7 (which arc stage you are in: 0 goal,1 big picture,2 inquiry,3 explain,4 IB lens,5 misconception,6 checkpoint,7 reinforce),
+ "concept_map": {"core":"","key_concepts":[],"related":[],"vocab":[],"applications":[]},
+ "inquiry": ["q1","q2"],
+ "layers": [{"level":1,"title":"","text":""}],
+ "ib": {"key":"","related":"","global":"","soi":"","atl":[]},
+ "misconceptions": [{"think":"","why":""}],
+ "checkpoint": {"level":1,"question":""},
+ "mastery_delta": 0,
+ "reflection": ["..."],
+ "reinforcement": {"summary":"","application":"","challenge":"","trick":"","tip":""}
+}`;
+  }
+
+  async send(text, isSystemKick){
+    const msg = (text||'').trim(); if(!msg) return;
+    if(this.state.thinking && !isSystemKick){ this.setState(s=>({queue:[...s.queue, msg], chatInput:''})); return; }
+    const history = this.state.messages.slice();
+    if(!isSystemKick) history.push({role:'user', text:msg});
+    this.setState({messages: history, chatInput:'', thinking:true, listening:false});
+    this.scrollChat();
+
+    const subj = this.state.activeSubject, topic = this.state.activeTopic;
+    const ctx = this.retrieve(topic? topic.name+' '+msg : msg).map(c=>`[${c.file} › ${c.heading}] ${c.text}`).join('\n\n');
+    const tr = this.trackerSummary();
+    const convo = history.map(m=>({role: m.role==='user'?'user':'assistant', content: m.text}));
+    if(isSystemKick) convo.push({role:'user', content: msg});
+
+    try {
+      const raw = await window.claude.complete({
+        system: this.systemPrompt(topic?topic.name:'', subj?subj.name:'', ctx, tr),
+        messages: convo,
+        max_tokens: 1600
+      });
+      const data = this.parse(raw);
+      const say = data.say || raw || "Let's keep going — tell me more about what you're thinking.";
+      const msgs = this.state.messages.slice(); msgs.push({role:'jarvis', text: say});
+      const scaffold = this.mergeScaffold(data);
+      const stageIndex = typeof data.stage==='number'? data.stage : this.state.stageIndex;
+      this.setState({messages: msgs, thinking:false, scaffold, stageIndex}, ()=>{
+        this.scrollChat();
+        if(!this.state.listening) this.speak(say);
+        // drain queue
+        const q = this.state.queue.slice();
+        if(q.length){ const next=q.shift(); this.setState({queue:q}, ()=>this.send(next)); }
+      });
+      if(topic) this.updateTracker(topic, subj, data.mastery_delta||0, data.misconceptions);
+    } catch(err){
+      const msgs = this.state.messages.slice();
+      msgs.push({role:'jarvis', text:"I had trouble thinking just now — could you say that again?"});
+      this.setState({messages: msgs, thinking:false});
+    }
+  }
+  parse(raw){
+    if(!raw) return {};
+    let s = raw.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    const a=s.indexOf('{'), b=s.lastIndexOf('}');
+    if(a>=0&&b>a){ try { return JSON.parse(s.slice(a,b+1)); } catch(e){} }
+    return { say: raw };
+  }
+  mergeScaffold(d){
+    const sc = Object.assign({}, this.state.scaffold);
+    if(d.concept_map && d.concept_map.core){ const c=d.concept_map; sc.cm={core:c.core, keyConcepts:c.key_concepts||c.keyConcepts||[], related:c.related||[], vocab:c.vocab||[], applications:c.applications||[]}; }
+    if(d.inquiry && d.inquiry.length) sc.inquiry = d.inquiry;
+    if(d.layers && d.layers.length) sc.layers = d.layers;
+    if(d.ib && (d.ib.key||d.ib.soi)) sc.ib = d.ib;
+    if(d.misconceptions && d.misconceptions.length) sc.miscon = d.misconceptions;
+    if(d.checkpoint && d.checkpoint.question) sc.checkpoint = d.checkpoint;
+    if(d.reinforcement && d.reinforcement.summary) sc.reinf = d.reinforcement;
+    if(d.reflection && d.reflection.length) sc.reflection = d.reflection;
+    return sc;
+  }
+
+  /* ---------- auth helpers ---------- */
+  async hashPass(p){ const b=new TextEncoder().encode(p); const h=await crypto.subtle.digest('SHA-256',b); return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  uid(){ return 'u_'+Math.random().toString(36).slice(2)+Date.now().toString(36); }
+  now(){ return new Date().toISOString(); }
+  audit(action, detail, userId){
+    const log=[...this.state.auditLog, {id:this.uid(), action, detail, userId:userId||this.state.currentUser?.id||'system', at:this.now()}].slice(-200);
+    this.setState({auditLog:log}); this.saveAuth({auditLog:log});
+  }
+  saveAuth(patch){
+    try{
+      const prev=JSON.parse(localStorage.getItem('jarvis_auth')||'{}');
+      localStorage.setItem('jarvis_auth', JSON.stringify(Object.assign(prev, patch)));
+    }catch(e){}
+  }
+  loadAuth(){
+    try{ return JSON.parse(localStorage.getItem('jarvis_auth')||'null'); }catch(e){ return null; }
+  }
+  initAuth(){
+    const isAdmin = /\/admin$|[?&]admin/.test(window.location.href) || window.location.hash==='#admin';
+    const data = this.loadAuth();
+    let users = data?.users || [];
+    const auditLog = data?.auditLog || [];
+    // seed default admin if missing
+    if(!users.find(u=>u.role==='admin')){
+      this.hashPass('password').then(h=>{
+        const admin={id:'admin_1', name:'Administrator', email:'admin', role:'admin', passHash:h, createdAt:this.now(), active:true};
+        const us=[admin,...users];
+        this.saveAuth({users:us});
+        this.setState({adminUsers:us});
+      });
+    }
+    const sessionId = data?.sessionId;
+    const sessionUser = sessionId && users.find(u=>u.id===sessionId && u.active);
+    if(sessionUser){
+      if(sessionUser.role==='admin'){ this.setState({authScreen:'admin', currentUser:sessionUser, adminUsers:users, auditLog, isAdminRoute:isAdmin}); }
+      else { this.setState({authScreen:'app', currentUser:sessionUser, adminUsers:users, auditLog, isAdminRoute:isAdmin}); }
+    } else {
+      this.setState({authScreen:'login', adminUsers:users, auditLog, isAdminRoute:isAdmin});
+    }
+  }
+  async doLogin(){
+    const {loginEmail:e, loginPass:p, adminUsers, isAdminRoute} = this.state;
+    if(!e||!p){ this.setState({loginError:'Please enter credentials.'}); return; }
+    this.setState({loginLoading:true, loginError:''});
+    const h = await this.hashPass(p);
+    const user = adminUsers.find(u=>u.email===e.trim()&&u.passHash===h&&u.active);
+    if(!user){ this.setState({loginError:'Invalid username or password.', loginLoading:false}); this.audit('LOGIN_FAIL',`Failed login for ${e}`,'anon'); return; }
+    if(isAdminRoute && user.role!=='admin'){ this.setState({loginError:'Admin access only on this route.', loginLoading:false}); this.audit('LOGIN_FAIL',`Non-admin attempted admin route: ${e}`,'anon'); return; }
+    this.saveAuth({sessionId:user.id});
+    this.audit('LOGIN',`User logged in: ${user.email}`, user.id);
+    if(user.role==='admin'){ this.setState({authScreen:'admin', currentUser:user, loginLoading:false}); }
+    else { this.setState({authScreen:'app', currentUser:user, loginLoading:false, screen:'home'}); }
+  }
+  async doRegister(){
+    const {regName:n, regEmail:e, regPass:p, adminUsers} = this.state;
+    if(!n||!e||!p){ this.setState({regError:'All fields required.'}); return; }
+    if(p.length<8){ this.setState({regError:'Password must be 8+ characters.'}); return; }
+    if(adminUsers.find(u=>u.email===e.trim())){ this.setState({regError:'Email already registered.'}); return; }
+    const h = await this.hashPass(p);
+    const user={id:this.uid(), name:n.trim(), email:e.trim(), role:'student', passHash:h, createdAt:this.now(), active:true};
+    const us=[...adminUsers, user];
+    this.saveAuth({users:us, sessionId:user.id});
+    this.audit('REGISTER',`New student registered: ${e}`, user.id);
+    this.setState({adminUsers:us, currentUser:user, authScreen:'app', screen:'home', regError:'', regScreen:false});
+  }
+  doLogout(){
+    this.audit('LOGOUT',`User logged out: ${this.state.currentUser?.email}`);
+    this.saveAuth({sessionId:null});
+    this.setState({authScreen:'login', currentUser:null, loginEmail:'', loginPass:'', loginError:'', screen:'home'});
+  }
+  // admin: create user
+  async adminCreateUser(){
+    const {newUserName:n, newUserEmail:e, newUserPass:p, newUserRole:r, adminUsers} = this.state;
+    if(!n||!e||!p){ this.setState({newUserError:'All fields required.'}); return; }
+    if(adminUsers.find(u=>u.email===e.trim())){ this.setState({newUserError:'Email already exists.'}); return; }
+    const h = await this.hashPass(p);
+    const user={id:this.uid(), name:n.trim(), email:e.trim(), role:r, passHash:h, createdAt:this.now(), active:true};
+    const us=[...adminUsers, user];
+    this.saveAuth({users:us});
+    this.audit('ADMIN_CREATE',`Created user: ${e} (${r})`);
+    this.setState({adminUsers:us, newUserName:'', newUserEmail:'', newUserPass:'', newUserError:''});
+  }
+  adminToggleUser(id){
+    const us=this.state.adminUsers.map(u=>u.id===id?Object.assign({},u,{active:!u.active}):u);
+    this.saveAuth({users:us});
+    const u=us.find(x=>x.id===id);
+    this.audit('ADMIN_TOGGLE',`User ${u.active?'enabled':'disabled'}: ${u.email}`);
+    this.setState({adminUsers:us});
+  }
+  adminDeleteUser(id){
+    if(!window.confirm('Delete this user? This cannot be undone.')) return;
+    const u=this.state.adminUsers.find(x=>x.id===id);
+    const us=this.state.adminUsers.filter(x=>x.id!==id);
+    this.saveAuth({users:us});
+    this.audit('ADMIN_DELETE',`Deleted user: ${u?.email}`);
+    this.setState({adminUsers:us, editUserId: this.state.editUserId===id?null:this.state.editUserId});
+  }
+  startEdit(id){
+    const u=this.state.adminUsers.find(x=>x.id===id);
+    if(!u) return;
+    this.setState({editUserId:id, editUserName:u.name, editUserEmail:u.email, editUserRole:u.role, editUserPass:'', editError:''});
+  }
+  cancelEdit(){ this.setState({editUserId:null, editError:''}); }
+  async saveEdit(){
+    const {editUserId:id, editUserName:n, editUserEmail:e, editUserRole:r, editUserPass:p, adminUsers} = this.state;
+    if(!n.trim()||!e.trim()){ this.setState({editError:'Name and email required.'}); return; }
+    const clash = adminUsers.find(u=>u.email===e.trim()&&u.id!==id);
+    if(clash){ this.setState({editError:'Email already used by another account.'}); return; }
+    let patch = {name:n.trim(), email:e.trim(), role:r};
+    if(p.length>=8){ patch.passHash = await this.hashPass(p); }
+    else if(p.length>0&&p.length<8){ this.setState({editError:'New password must be 8+ characters.'}); return; }
+    const us = adminUsers.map(u=>u.id===id?Object.assign({},u,patch):u);
+    this.saveAuth({users:us});
+    this.audit('ADMIN_EDIT',`Edited user: ${e} (${r})`);
+    this.setState({adminUsers:us, editUserId:null, editError:''});
+  }
+
+  tabSty(active){ return {flex:'1',padding:'9px 4px',border:'none',cursor:'pointer',fontWeight:'700',fontSize:'13px',borderBottom:`3px solid ${active?'#4C43D9':'transparent'}`,background:'transparent',color:active?'#4C43D9':'#8A8172',transition:'color .15s'}; }
+
+  /* ---------- study tools ---------- */
+  topicContext(){
+    const s=this.state; const subj=s.activeSubject, topic=s.activeTopic;
+    return `Subject: ${subj?subj.name:''} | Topic: ${topic?topic.name:''} | Grade 7 IB MYP | Level: intermediate 7th-grader`;
+  }
+  async generateQuiz(){
+    const ctx = this.state.activeTopic? this.retrieve(this.state.activeTopic.name+' quiz').map(c=>c.text).join('\n') : '';
+    this.setState({quizLoading:true});
+    try{
+      const raw = await window.claude.complete({
+        system:`You are an IB MYP Grade 7 assessment specialist. Generate a quiz for: ${this.topicContext()}.\nSyllabus context (use it; self-fill any gaps with accurate IB MYP Grade 7 content at exactly this level):\n"""${ctx||'(none — use your own IB MYP Grade 7 knowledge)'}"""\nRespond ONLY with a JSON array of 6 questions. Each: {"type":"mcq"|"short","question":"","options":["A","B","C","D"],"answer":"correct option or short answer","explanation":"why this is correct in IB terms"}. MCQ: 4 options, options only for MCQ. Vary difficulty (2 recall, 2 application, 2 analysis/evaluation). Align with IB MYP command terms.`,
+        messages:[{role:'user',content:'Generate the quiz now.'}],
+        max_tokens:1800
+      });
+      const data=this.parse(raw);
+      const arr=Array.isArray(data)?data:(Array.isArray(data.questions)?data.questions:[]);
+      this.setState({quizData:arr, quizState:{}, quizLoading:false});
+    }catch(e){ this.setState({quizLoading:false}); }
+  }
+  async generateFlashcards(){
+    const ctx = this.state.activeTopic? this.retrieve(this.state.activeTopic.name+' vocabulary').map(c=>c.text).join('\n') : '';
+    this.setState({fcLoading:true});
+    try{
+      const raw = await window.claude.complete({
+        system:`You are an IB MYP Grade 7 tutor. Create flashcards for: ${this.topicContext()}.\nSyllabus context:\n"""${ctx||'(none — use your own IB MYP Grade 7 knowledge)'}"""\nRespond ONLY with a JSON array of 10 flashcard objects: {"term":"","definition":"clear, jargon-free definition a 7th grader understands","example":"one concrete real-world example","ib_link":"one IB concept or command term this connects to"}. Cover key vocabulary, formulas, and concepts.`,
+        messages:[{role:'user',content:'Generate flashcards.'}],
+        max_tokens:1600
+      });
+      const data=this.parse(raw);
+      const arr=Array.isArray(data)?data:(Array.isArray(data.flashcards)?data.flashcards:[]);
+      this.setState({flashcards:arr, fcIndex:0, fcFlipped:false, fcLoading:false});
+    }catch(e){ this.setState({fcLoading:false}); }
+  }
+  async generateVideos(){
+    this.setState({videosLoading:true});
+    try{
+      const raw = await window.claude.complete({
+        system:`You are an IB MYP Grade 7 teacher curating educational video resources. Topic: ${this.topicContext()}.\nRespond ONLY with a JSON array of 6 video resource objects: {"title":"specific video title","channel":"YouTube channel name","search_query":"exact YouTube search string to find this","video_id":"YouTube video ID if you know it with confidence, else empty string","timestamp_seconds":0,"timestamp_label":"e.g. 2:34 — Cell membrane explained","reason":"why this specific video at this moment helps a Grade 7 IB student understand this concept","concept_covered":"which part of the topic it covers"}. Be highly specific — target Grade 7 IB MYP level. Prefer Khan Academy, CrashCourse, Kurzgesagt, TED-Ed, Veritasium, or known edu channels. Vary: include an overview, a deep-dive, an experiment/demo, and a real-world application.`,
+        messages:[{role:'user',content:'Generate video recommendations.'}],
+        max_tokens:1400
+      });
+      const data=this.parse(raw);
+      const arr=Array.isArray(data)?data:(Array.isArray(data.videos)?data.videos:[]);
+      this.setState({videos:arr, videosLoading:false});
+    }catch(e){ this.setState({videosLoading:false}); }
+  }
+  async generateMindMap(){
+    const ctx = this.state.activeTopic? this.retrieve(this.state.activeTopic.name).map(c=>c.text).join('\n') : '';
+    this.setState({mindMapLoading:true});
+    try{
+      const raw = await window.claude.complete({
+        system:`You are an IB MYP Grade 7 teacher building a concept mind map. Topic: ${this.topicContext()}.\nSyllabus context:\n"""${ctx||'(none — use your IB MYP Grade 7 knowledge)'}"""\nRespond ONLY with a JSON object: {"center":"topic name","branches":[{"label":"branch name","color":"#hexcolor","children":["child1","child2","child3"]}]}. Include 5-7 branches. Branch colors: use distinct warm/cool hex colours. Children are key sub-concepts, vocabulary, or real-world examples (3-4 each). Map the full conceptual landscape of this topic at Grade 7 IB MYP level.`,
+        messages:[{role:'user',content:'Generate the mind map.'}],
+        max_tokens:1000
+      });
+      const data=this.parse(raw);
+      this.setState({mindMap:data&&data.center?data:null, mindMapLoading:false});
+    }catch(e){ this.setState({mindMapLoading:false}); }
+  }
+  answerQuiz(qi, answer){
+    const q=this.state.quizData[qi]; if(!q||this.state.quizState[qi]) return;
+    const correct = q.type==='mcq'? answer===q.answer : answer.trim().toLowerCase().includes((q.answer||'').trim().toLowerCase().slice(0,8));
+    const qs=Object.assign({},this.state.quizState); qs[qi]={answer, correct, revealed:true};
+    this.setState({quizState:qs});
+    if(this.state.activeTopic) this.updateTracker(this.state.activeTopic, this.state.activeSubject, correct?8:-3, []);
+  }
+  nextCard(){ const n=this.state.flashcards.length; this.setState(s=>({fcIndex:(s.fcIndex+1)%n, fcFlipped:false})); }
+  prevCard(){ const n=this.state.flashcards.length; this.setState(s=>({fcIndex:(s.fcIndex-1+n)%n, fcFlipped:false})); }
+  flipCard(){ this.setState(s=>({fcFlipped:!s.fcFlipped})); }
+  ytUrl(v){ if(v.video_id){ return `https://www.youtube.com/watch?v=${v.video_id}${v.timestamp_seconds?'&t='+v.timestamp_seconds:''}`; } return `https://www.youtube.com/results?search_query=${encodeURIComponent(v.search_query||v.title)}`; }
+
+  /* ---------- tracker ---------- */
+  trackerSummary(){
+    const t=this.state.tracker; const keys=Object.keys(t); if(!keys.length) return 'New learner, no history yet.';
+    return keys.map(k=>`${t[k].name}: ${t[k].mastery}% mastery`).join('; ');
+  }
+  updateTracker(topic, subj, delta, miscon){
+    const t = Object.assign({}, this.state.tracker);
+    const prev = t[topic.id] || {mastery:0, miscon:[], name:topic.name, subject:subj?subj.name:'', color: subj?subj.color:'#4C43D9', icon: subj?subj.icon:'📘'};
+    let m = Math.max(0, Math.min(100, prev.mastery + (delta||0)));
+    const misc = prev.miscon.slice();
+    if(miscon && miscon.length) miscon.forEach(x=>{ if(x.think && !misc.includes(x.think)) misc.push(x.think); });
+    t[topic.id] = Object.assign(prev, {mastery:m, miscon:misc, lastSeen: Date.now()});
+    this.setState({tracker:t}, ()=>this.persist());
+  }
+  dueList(){
+    const t=this.state.tracker; const now=Date.now();
+    return Object.keys(t).map(k=>{
+      const o=t[k]; const interval = o.mastery>=75? 4 : o.mastery>=40? 2 : 1; // days
+      const due = (o.lastSeen||now) + interval*86400000;
+      return {id:k, name:o.name, due, overdue: now>=due};
+    }).sort((a,b)=>a.due-b.due);
+  }
+
+  /* ---------- voice ---------- */
+  toggleMic(){
+    if(!this.recog){ alert('Voice input needs Chrome/Safari with mic permission.'); return; }
+    if(this.state.listening){ this.recog.stop(); this.setState({listening:false}); }
+    else {
+      // always cancel TTS so kid's voice dominates
+      if(window.speechSynthesis){ window.speechSynthesis.cancel(); }
+      this.setState({speaking:false});
+      try{ this.recog.start(); this.setState({listening:true, chatInput:''}); }catch(e){}
+    }
+  }
+  speak(text){
+    if(this.state.muted || !window.speechSynthesis || this.state.listening) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/[*#_`>]/g,''));
+    u.rate=1.02; u.pitch=1.0;
+    const vs = window.speechSynthesis.getVoices();
+    const pref = vs.find(v=>/(daniel|google uk|arthur|male)/i.test(v.name)) || vs.find(v=>/en/i.test(v.lang));
+    if(pref) u.voice=pref;
+    u.onstart = ()=> this.setState({speaking:true});
+    u.onend = ()=> this.setState({speaking:false});
+    u.onerror = ()=> this.setState({speaking:false});
+    window.speechSynthesis.speak(u);
+  }
+  interruptSpeech(){ if(window.speechSynthesis){ window.speechSynthesis.cancel(); } this.setState({speaking:false}); this.toggleMic(); }
+  toggleMute(){ const m=!this.state.muted; if(m&&window.speechSynthesis){ window.speechSynthesis.cancel(); this.setState({speaking:false}); } this.setState({muted:m}, ()=>this.persist()); }
+
+  scrollChat(){ requestAnimationFrame(()=>{ const el=this.chatRef.current; if(el) el.scrollTop=el.scrollHeight; }); }
+
+  /* ---------- file upload ---------- */
+  async readFiles(fileList){
+    const md=[];
+    for(const f of fileList){ const text = await f.text(); md.push({name:f.name, text}); }
+    if(md.length){ try{ localStorage.setItem('jarvis_syllabus', JSON.stringify(md)); }catch(e){} this.ingest(md); }
+  }
+  onFiles(e){ this.readFiles(Array.from(e.target.files||[])); }
+  onDrop(e){ e.preventDefault(); this.setState({dragOver:false}); const fs=Array.from(e.dataTransfer.files||[]).filter(f=>/\.(md|markdown|txt)$/i.test(f.name)); this.readFiles(fs); }
+
+  /* ---------- render ---------- */
+  ringVals(pct, r){ const c=2*Math.PI*r; return {circ:c.toFixed(1), off:(c*(1-pct/100)).toFixed(1)}; }
+
+  renderVals(){
+    const S=this.state;
+    const nav=(scr)=>({width:'52px',height:'52px',borderRadius:'16px',border:'none',cursor:'pointer',fontSize:'22px',background:S.screen===scr?'#4C43D9':'transparent',color:S.screen===scr?'#fff':'#8A8172'});
+    const stringStyle=o=>Object.entries(o).map(([k,v])=>k.replace(/[A-Z]/g,m=>'-'+m.toLowerCase())+':'+v).join(';');
+
+    // subjects with progress
+    const subjects = S.subjects.map(s=>{
+      const topics = s.topics.map(t=>{
+        const tr=S.tracker[t.id]; const m=tr?tr.mastery:0;
+        const dot = m>=75?'#2E9E6B':m>=40?'#E8823A':'#CFC7B8';
+        const badge = m>=75?'Mastered':m>0?m+'%':'New';
+        return {name:t.name, dot, badge, go:()=>this.openTopic(s.id,t.id)};
+      });
+      const mastered = topics.filter(t=>t.badge==='Mastered').length;
+      const pctNum = s.topics.length? Math.round(s.topics.reduce((a,t)=>a+((S.tracker[t.id]&&S.tracker[t.id].mastery)||0),0)/s.topics.length):0;
+      const rv=this.ringVals(pctNum,22);
+      return {name:s.name, icon:s.icon, color:s.color, soft:s.soft, pct:pctNum+'%', circ:rv.circ, off:rv.off, topicCount:s.topics.length, masteredCount:mastered, topics};
+    });
+
+    // due topics
+    const due = this.dueList();
+    const fmt=(d)=>{ const days=Math.round((d-Date.now())/86400000); return days<=0?'now':days+'d'; };
+    const findGo=(id)=>()=>{ for(const s of S.subjects){ const t=s.topics.find(x=>x.id===id); if(t){ this.openTopic(s.id,t.id); return; } } };
+    const dueTopics = due.slice(0,3).map(d=>({name:d.name, when: d.overdue?'due now':fmt(d.due), go:findGo(d.id)}));
+
+    // resume
+    const lastKey = Object.keys(S.tracker).sort((a,b)=>(S.tracker[b].lastSeen||0)-(S.tracker[a].lastSeen||0))[0];
+    const last = lastKey && S.tracker[lastKey];
+    const firstTopic = subjects[0]&&S.subjects[0]&&S.subjects[0].topics[0];
+    const resumeGo = last? findGo(lastKey) : (firstTopic? ()=>this.openTopic(S.subjects[0].id, firstTopic.id) : ()=>{});
+
+    // scaffold
+    const sc=S.scaffold||{};
+    const layerBg=['#ECEBFB','#E4F3EC','#FBE9DC','#F3F1FB','#23201B'];
+    const layerFg=['#372FB0','#1E7A50','#B5561F','#4C43D9','#fff'];
+    const layers=(sc.layers||[]).map(l=>({level:l.level,title:l.title,text:l.text,bg:layerBg[(l.level-1)%5]||'#ECEBFB',fg:layerFg[(l.level-1)%5]||'#372FB0'}));
+
+    // stages
+    const stageDefs=[['🎯','Goal'],['🗺','Big picture'],['🤔','Inquiry'],['📚','Explain'],['◆','IB lens'],['⚠','Misconceptions'],['✅','Check'],['🌱','Reinforce']];
+    const stages=stageDefs.map((d,i)=>{
+      const done=i<S.stageIndex, cur=i===S.stageIndex;
+      return {icon:d[0], name:d[1], bg:cur?'#4C43D9':done?'#E4F3EC':'#fff', fg:cur?'#fff':done?'#1E7A50':'#A79E8E', border:cur?'#4C43D9':done?'#BEE3CF':'#E7E1D6'};
+    });
+
+    // messages
+    const messages=S.messages.map(m=>{
+      const u=m.role==='user';
+      return {text:m.text, who:u?'You':'Jarvis', align:u?'flex-end':'flex-start', talign:u?'right':'left',
+        bg:u?'#4C43D9':'#fff', fg:u?'#fff':'#23201B', radius:u?'16px 16px 4px 16px':'16px 16px 16px 4px'};
+    });
+
+    // mastery ring for active topic
+    const at=S.activeTopic; const mv = at&&S.tracker[at.id]?S.tracker[at.id].mastery:0;
+    const mr=this.ringVals(mv,16);
+
+    // tracker page
+    const allTopics=[]; S.subjects.forEach(s=>s.topics.forEach(t=>{ const tr=S.tracker[t.id]; if(tr){ const m=tr.mastery; allTopics.push({name:t.name, subject:s.name, icon:s.icon, pct:m+'%', color:m>=75?'#2E9E6B':m>=40?'#E8823A':'#C0392B', go:()=>this.openTopic(s.id,t.id)}); }}));
+    const misconLog=[]; Object.keys(S.tracker).forEach(k=>{ const o=S.tracker[k]; (o.miscon||[]).forEach(x=>misconLog.push({topic:o.name, text:x})); });
+    const schedule=due.map(d=>({name:d.name, when:d.overdue?'Due now':'in '+fmt(d.due)}));
+
+    return {
+      // auth gate
+      isChecking: S.authScreen==='checking',
+      loginBtnLabel: S.loginLoading?'Signing in…':'Sign in',
+      loginEmailLabel: S.isAdminRoute?'Username':'Email',
+      loginEmailPlaceholder: S.isAdminRoute?'admin':'you@school.edu',
+      loginSubtitle: S.isAdminRoute?'Admin Portal':'IB MYP Self-Learning Studio',
+      isAdminRouteFlag: S.isAdminRoute,
+      isNotAdminRoute: !S.isAdminRoute,
+      isNotRegScreen: !S.regScreen,
+      isLogin: S.authScreen==='login',
+      isApp: S.authScreen==='app',
+      isAdminPortal: S.authScreen==='admin',
+      isAdminRoute: S.isAdminRoute,
+      isRegScreen: S.regScreen,
+      loginEmail: S.loginEmail, loginPass: S.loginPass, loginError: S.loginError, loginLoading: S.loginLoading,
+      onLoginEmail: (e)=>this.setState({loginEmail:e.target.value}),
+      onLoginPass: (e)=>this.setState({loginPass:e.target.value}),
+      onLoginKey: (e)=>{ if(e.key==='Enter') this.doLogin(); },
+      doLogin: ()=>this.doLogin(),
+      goRegister: ()=>this.setState({regScreen:true, loginError:''}),
+      goLoginBack: ()=>this.setState({regScreen:false, regError:''}),
+      regName: S.regName, regEmail: S.regEmail, regPass: S.regPass, regError: S.regError,
+      onRegName: (e)=>this.setState({regName:e.target.value}),
+      onRegEmail: (e)=>this.setState({regEmail:e.target.value}),
+      onRegPass: (e)=>this.setState({regPass:e.target.value}),
+      doRegister: ()=>this.doRegister(),
+      doLogout: ()=>this.doLogout(),
+      currentUserName: S.currentUser?.name||'',
+      currentUserEmail: S.currentUser?.email||'',
+      currentUserRole: S.currentUser?.role||'',
+      // admin portal
+      adminTab: S.adminTab,
+      setAdminUsers: ()=>this.setState({adminTab:'users'}),
+      setAdminAudit: ()=>this.setState({adminTab:'audit'}),
+      isAdminUsers: S.adminTab==='users',
+      isAdminAudit: S.adminTab==='audit',
+      adminTabUsersStyle: this.tabSty(S.adminTab==='users'),
+      adminTabAuditStyle: this.tabSty(S.adminTab==='audit'),
+      adminUsers: S.adminUsers.map(u=>({
+        id:u.id, name:u.name, initial:(u.name||'?')[0].toUpperCase(), email:u.email, role:u.role, active:u.active,
+        createdAt: u.createdAt?u.createdAt.slice(0,10):'',
+        statusLabel: u.active?'Active':'Disabled',
+        statusColor: u.active?'#2E9E6B':'#C0392B',
+        toggleLabel: u.active?'Disable':'Enable',
+        toggleColor: u.active?'#E8823A':'#2E9E6B',
+        isEditing: S.editUserId===u.id,
+        toggle: ()=>this.adminToggleUser(u.id),
+        edit: ()=>this.startEdit(u.id),
+        del: ()=>this.adminDeleteUser(u.id)
+      })),
+      editUserId: S.editUserId,
+      editUserName: S.editUserName, editUserEmail: S.editUserEmail,
+      editUserRole: S.editUserRole, editUserPass: S.editUserPass, editError: S.editError,
+      onEditName: (e)=>this.setState({editUserName:e.target.value}),
+      onEditEmail: (e)=>this.setState({editUserEmail:e.target.value}),
+      onEditRole: (e)=>this.setState({editUserRole:e.target.value}),
+      onEditPass: (e)=>this.setState({editUserPass:e.target.value}),
+      saveEdit: ()=>this.saveEdit(),
+      cancelEdit: ()=>this.cancelEdit(),
+      adminUserCount: S.adminUsers.filter(u=>u.role==='student').length,
+      adminActiveCount: S.adminUsers.filter(u=>u.active).length,
+      auditLog: [...S.auditLog].reverse().slice(0,50).map(l=>({action:l.action, detail:l.detail, at:l.at?l.at.replace('T',' ').slice(0,19):'', actionColor: l.action.includes('FAIL')||l.action.includes('DELETE')?'#C0392B':l.action.includes('LOGIN')?'#2E9E6B':'#4C43D9'})),
+      newUserName: S.newUserName, newUserEmail: S.newUserEmail, newUserPass: S.newUserPass, newUserRole: S.newUserRole, newUserError: S.newUserError,
+      onNewName: (e)=>this.setState({newUserName:e.target.value}),
+      onNewEmail: (e)=>this.setState({newUserEmail:e.target.value}),
+      onNewPass: (e)=>this.setState({newUserPass:e.target.value}),
+      onNewRole: (e)=>this.setState({newUserRole:e.target.value}),
+      adminCreateUser: ()=>this.adminCreateUser(),
+      newUserError: S.newUserError,
+      goToApp: ()=>this.setState({authScreen:'app', screen:'home'}),
+
+      // nav
+      navHomeStyle:stringStyle(nav('home')), navLibStyle:stringStyle(nav('library')), navTrackStyle:stringStyle(nav('tracker')),
+      goHome:()=>this.go('home'), goLibrary:()=>this.go('library'), goTracker:()=>this.go('tracker'),
+      muteBg:S.muted?'#C0392B':'#3A362E', muteColor:'#fff', muteIcon:S.muted?'🔇':'🔊', toggleMute:()=>this.toggleMute(),
+      isHome:S.screen==='home', isLibrary:S.screen==='library', isTracker:S.screen==='tracker', isLesson:S.screen==='lesson',
+      // home
+      greeting:`Hi ${S.greetingName} 👋`, homeSub:'What would you like to understand today? Pick a topic and Jarvis will teach it the IB way — through inquiry, not memorising.',
+      subjects, dueTopics, noDue: dueTopics.length===0,
+      resumeTitle: last?last.name:(firstTopic?firstTopic.name:'Start your first lesson'),
+      resumeSub: last?`${last.mastery}% mastery · pick up where you left off`:'Choose any subject to begin', resumeGo,
+      // library
+      driveLink:S.driveLink, onDriveInput:(e)=>this.setState({driveLink:e.target.value}), onDriveConnect:()=>alert('In this preview, drag your .md files into the box above — Drive sync happens in the production build.'),
+      onFiles:(e)=>this.onFiles(e), onDrop:(e)=>this.onDrop(e), onDragOver:(e)=>{e.preventDefault(); if(!S.dragOver)this.setState({dragOver:true});}, onDragLeave:()=>this.setState({dragOver:false}),
+      dropBorder:S.dragOver?'#4C43D9':'#CFC7B8', dropBg:S.dragOver?'#F3F1FB':'#fff',
+      files:S.files.map(f=>({name:f.name, meta:f.count+' sections indexed', icon:'📄'})), chunkCount:S.chunks.length,
+      // tracker
+      statTopics:Object.keys(S.tracker).length, statMastered:Object.values(S.tracker).filter(o=>o.mastery>=75).length,
+      statDue:due.filter(d=>d.overdue).length, statMiscon:misconLog.length,
+      allTopics, misconLog, noMiscon:misconLog.length===0, schedule,
+      // lesson chat
+      activeTopicName:at?at.name:'', activeSubjectName:S.activeSubject?S.activeSubject.name:'',
+      chatRef:this.chatRef, messages, thinking:S.thinking,
+      chatInput:S.chatInput, onInput:(e)=>this.setState({chatInput:e.target.value}),
+      onKeyDown:(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); this.send(S.chatInput); } },
+      onSend:()=>this.send(S.chatInput),
+      listening:S.listening, speaking:S.speaking, interruptSpeech:()=>this.interruptSpeech(), toggleMic:()=>this.toggleMic(),
+      micBg:S.listening?'#FBE9DC':'#F1ECE2', micColor:S.listening?'#E8823A':'#5A5347',
+      masteryPct:mv+'%', mCirc:mr.circ, mOff:mr.off,
+      // stages + canvas
+      stages, stageIndex:S.stageIndex,
+      hasCM:!!sc.cm, cm:sc.cm||{core:'',keyConcepts:[],related:[],vocab:[],applications:[]},
+      hasInquiry:!!(sc.inquiry&&sc.inquiry.length), inquiryList:sc.inquiry||[],
+      hasLayers:layers.length>0, layers,
+      hasIB:!!sc.ib, ib:{key:(sc.ib&&sc.ib.key)||'',related:(sc.ib&&sc.ib.related)||'',global:(sc.ib&&sc.ib.global)||'',soi:(sc.ib&&sc.ib.soi)||''},
+      hasATL:!!(sc.ib&&sc.ib.atl&&sc.ib.atl.length), atlList:(sc.ib&&sc.ib.atl)||[],
+      hasMiscon:!!(sc.miscon&&sc.miscon.length), misconceptions:sc.miscon||[],
+      hasCheckpoint:!!sc.checkpoint, cp:sc.checkpoint||{level:1,question:''},
+      hasReinf:!!sc.reinf, reinf:sc.reinf||{summary:'',application:'',challenge:'',trick:'',tip:''},
+      hasReflection:!!(sc.reflection&&sc.reflection.length), reflectionList:sc.reflection||[],
+      canvasEmpty: !sc.cm&&!sc.layers&&!sc.inquiry&&!sc.ib&&!sc.reinf&&!S.thinking&&messages.length<=1,
+
+      // tab bar
+      lessonTab: S.lessonTab,
+      setTabCanvas: ()=>this.setState({lessonTab:'canvas'}),
+      setTabQuiz: ()=>this.setState({lessonTab:'quiz'}),
+      setTabFC: ()=>this.setState({lessonTab:'flashcards'}),
+      setTabVideos: ()=>this.setState({lessonTab:'videos'}),
+      setTabMindMap: ()=>this.setState({lessonTab:'mindmap'}),
+      isTabCanvas: S.lessonTab==='canvas',
+      isTabQuiz: S.lessonTab==='quiz',
+      isTabFC: S.lessonTab==='flashcards',
+      isTabVideos: S.lessonTab==='videos',
+      isTabMindMap: S.lessonTab==='mindmap',
+      tabStyle: (t)=>{ const a=S.lessonTab===t; return `flex:1;padding:9px 4px;border:none;cursor:pointer;font-weight:700;font-size:13px;border-bottom:3px solid ${a?'#4C43D9':'transparent'};background:transparent;color:${a?'#4C43D9':'#8A8172'};transition:.15s;`; },
+      tabCanStyle: this.tabSty(S.lessonTab==='canvas'),
+      tabQuizStyle: this.tabSty(S.lessonTab==='quiz'),
+      tabFCStyle: this.tabSty(S.lessonTab==='flashcards'),
+      tabVidStyle: this.tabSty(S.lessonTab==='videos'),
+      tabMMStyle: this.tabSty(S.lessonTab==='mindmap'),
+
+      // quiz
+      quizData: S.quizData, quizLoading: S.quizLoading, quizState: S.quizState,
+      hasQuiz: S.quizData.length>0,
+      quizScore: Object.values(S.quizState).filter(x=>x.correct).length,
+      quizAnswered: Object.keys(S.quizState).length,
+      generateQuiz: ()=>this.generateQuiz(),
+      quizItems: S.quizData.map((q,i)=>{
+        const st=S.quizState[i]; const isMcq=q.type==='mcq';
+        return { question: q.question, type: q.type, options: q.options||[], answered: !!st, correct: st&&st.correct,
+          answerText: st?st.answer:'', explanation: q.explanation, correctAnswer: q.answer,
+          resultColor: st?(st.correct?'#2E9E6B':'#C0392B'):'#8A8172',
+          resultIcon: st?(st.correct?'✓':'✗'):'',
+          bg: st?(st.correct?'#E4F3EC':'#FDECEA'):'#fff',
+          answerA: isMcq&&(q.options||[])[0]?()=>this.answerQuiz(i,(q.options||[])[0]):()=>{},
+          answerB: isMcq&&(q.options||[])[1]?()=>this.answerQuiz(i,(q.options||[])[1]):()=>{},
+          answerC: isMcq&&(q.options||[])[2]?()=>this.answerQuiz(i,(q.options||[])[2]):()=>{},
+          answerD: isMcq&&(q.options||[])[3]?()=>this.answerQuiz(i,(q.options||[])[3]):()=>{},
+          optA:(q.options||[])[0]||'', optB:(q.options||[])[1]||'', optC:(q.options||[])[2]||'', optD:(q.options||[])[3]||'',
+          isMcq
+        };
+      }),
+
+      // flashcards
+      flashcards: S.flashcards, fcLoading: S.fcLoading, fcIndex: S.fcIndex, fcFlipped: S.fcFlipped,
+      hasFC: S.flashcards.length>0,
+      generateFlashcards: ()=>this.generateFlashcards(),
+      flipCard: ()=>this.flipCard(), nextCard: ()=>this.nextCard(), prevCard: ()=>this.prevCard(),
+      fcTotal: S.flashcards.length,
+      fcProgress: S.flashcards.length>0? Math.round((S.fcIndex+1)/S.flashcards.length*100)+'%' : '0%',
+      fcCard: S.flashcards[S.fcIndex]||{term:'',definition:'',example:'',ib_link:''},
+      fcFront: S.fcFlipped? (S.flashcards[S.fcIndex]||{}).definition||'' : (S.flashcards[S.fcIndex]||{}).term||'',
+      fcBack: !S.fcFlipped? (S.flashcards[S.fcIndex]||{}).definition||'' : (S.flashcards[S.fcIndex]||{}).term||'',
+      fcLabel: S.fcFlipped?'Definition':'Term',
+      fcNum: S.fcIndex+1,
+
+      // videos
+      videos: S.videos, videosLoading: S.videosLoading,
+      hasVideos: S.videos.length>0,
+      generateVideos: ()=>this.generateVideos(),
+      videoItems: S.videos.map(v=>({title:v.title, channel:v.channel||'', reason:v.reason||'', concept:v.concept_covered||'', timestamp:v.timestamp_label||'', channelTimestamp: [v.channel, v.timestamp_label].filter(Boolean).join(' · ⏱ '), url:this.ytUrl(v)})),
+
+      // button labels (no ternaries in holes)
+      quizBtnLabel: S.quizLoading?'Generating…':S.quizData.length?'Regenerate':'Generate Quiz',
+      fcBtnLabel: S.fcLoading?'Generating…':S.flashcards.length?'Regenerate':'Generate Flashcards',
+      vidBtnLabel: S.videosLoading?'Finding…':S.videos.length?'Refresh':'Find Videos',
+      mmBtnLabel: S.mindMapLoading?'Building…':S.mindMap?'Rebuild':'Build Mind Map',
+      quizScoreBar: S.quizData.length? Math.round(Object.keys(S.quizState).length/S.quizData.length*100)+'%':'0%',
+
+      // mind map
+      mindMap: S.mindMap, mindMapLoading: S.mindMapLoading,
+      hasMindMap: !!S.mindMap,
+      generateMindMap: ()=>this.generateMindMap(),
+      mmCenter: S.mindMap?S.mindMap.center:'',
+      mmBranches: S.mindMap? (S.mindMap.branches||[]).map(b=>({label:b.label, color:b.color||'#4C43D9', children:b.children||[]})) : []
+    };
+  }
+}
+</script>
+</body>
+</html>
