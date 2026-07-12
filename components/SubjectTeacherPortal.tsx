@@ -102,6 +102,7 @@ export default function SubjectTeacherPortal({
 
   // Content tab
   const [content, setContent] = useState<Content[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
   const [cTopic, setCTopic] = useState("");
   const [cTitle, setCTitle] = useState("");
   const [cType, setCType] = useState("text");
@@ -112,10 +113,25 @@ export default function SubjectTeacherPortal({
   const [criteria, setCriteria] = useState<Criterion[]>([]);
   const [critEdits, setCritEdits] = useState<Record<string, string>>({});
 
-  const topicsForSubject = useCallback(
-    (name: string): Topic[] => syllabus.find((s) => s.name === name)?.topics ?? [],
-    [syllabus]
-  );
+  // Topics come from the syllabus keyed by short_name (the assigned subject value),
+  // which the client-side `syllabus` prop (keyed by verbose subject) can't match.
+  const loadTopics = useCallback(async (subjectName: string) => {
+    if (!subjectName) {
+      setTopics([]);
+      return;
+    }
+    try {
+      const r = await fetch(`/api/teacher/topics?subjectName=${encodeURIComponent(subjectName)}`);
+      if (r.ok) {
+        const j = (await r.json()) as { topics: { topic_name: string }[] };
+        setTopics((j.topics ?? []).map((t) => t.topic_name));
+      } else {
+        setTopics([]);
+      }
+    } catch {
+      setTopics([]);
+    }
+  }, []);
 
   const loadStudents = useCallback(async () => {
     setLoadingStudents(true);
@@ -221,9 +237,12 @@ export default function SubjectTeacherPortal({
   }, []);
 
   useEffect(() => {
-    if (tab === "content") loadContent(selectedSubject);
+    if (tab === "content") {
+      loadContent(selectedSubject);
+      loadTopics(selectedSubject);
+    }
     if (tab === "criteria") loadCriteria(selectedSubject);
-  }, [tab, selectedSubject, loadContent, loadCriteria]);
+  }, [tab, selectedSubject, loadContent, loadTopics, loadCriteria]);
 
   async function addContent() {
     if (!selectedSubject || !cTopic || !cTitle.trim() || !cBody.trim() || cBusy) return;
@@ -426,9 +445,9 @@ export default function SubjectTeacherPortal({
               <div style={{ fontWeight: 700, fontFamily: DISPLAY }}>Add content</div>
               <select value={cTopic} onChange={(e) => setCTopic(e.target.value)} style={inputStyle}>
                 <option value="">Select topic…</option>
-                {topicsForSubject(selectedSubject).map((t) => (
-                  <option key={t.id} value={t.name}>
-                    {t.name}
+                {topics.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
                   </option>
                 ))}
               </select>

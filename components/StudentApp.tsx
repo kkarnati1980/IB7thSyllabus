@@ -9,12 +9,11 @@ import type {
   QuizItem,
   Scaffold,
   Subject,
-  SyllabusFile,
   ChatMessage,
 } from "@/lib/types";
 
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
-type Screen = "home" | "library" | "tracker" | "lesson";
+type Screen = "home" | "tracker" | "lesson";
 type Tab = "canvas" | "quiz" | "flashcards" | "videos" | "mindmap";
 type Tracker = Record<string, ProgressEntry>;
 
@@ -42,17 +41,17 @@ type TopicImage = { id: string; image_url: string; thumbnail_url: string; alt_te
 type FlagItem = { id: string; topic_id: string; topic_name: string; subject_name: string; reason: string; created_at: string };
 type NotifItem = { id: string; type: string; content: string; from_name: string | null; read: boolean; created_at: string };
 type TeacherContentItem = { id: string; title: string; content_type: string; content: string; added_by?: string };
+type Recipient = { id: string; name: string; role: string; displayName: string };
 
 export default function StudentApp({
   user,
   initialSubjects,
   initialProgress,
-  initialChunkCount,
 }: {
   user: { id: string; name: string; email: string; role: string; linkedToSchool: boolean };
   initialSubjects: Subject[];
   initialProgress: ProgressEntry[];
-  initialChunkCount: number;
+  initialChunkCount?: number; // ponytail: library removed; prop kept so the (untouched) parent's pass-through still type-checks
 }) {
   const router = useRouter();
   // School-side UI is opt-in: everything gated on `linked` stays invisible for standalone students.
@@ -70,9 +69,6 @@ export default function StudentApp({
     for (const p of initialProgress) t[p.topicId] = p;
     return t;
   });
-  const [chunkCount, setChunkCount] = useState(initialChunkCount);
-  const [files, setFiles] = useState<SyllabusFile[]>([]);
-
   const [screen, setScreen] = useState<Screen>("home");
   const [muted, setMuted] = useState(false);
 
@@ -83,9 +79,12 @@ export default function StudentApp({
     messages: [],
     unreadCount: 0,
   });
-  const [dragOver, setDragOver] = useState(false);
-  const [driveLink, setDriveLink] = useState("");
 
+  // Compose (student → teacher/guardian) in the notification panel
+  const [composeText, setComposeText] = useState("");
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
   // Voice settings
   const [voiceId, setVoiceId] = useState<string>(() => {
     if (typeof window !== "undefined") return localStorage.getItem("jarvis_voice_id") || "";
@@ -510,33 +509,6 @@ export default function StudentApp({
     if (activeTopic && activeSubject) saveSession(activeTopic.id, activeTopic.name, activeSubject.name, { mindmap: mm });
   }
 
-  // ---------------------------------------------------------------- library
-  async function uploadFiles(fileList: File[]) {
-    const md: { name: string; text: string }[] = [];
-    for (const f of fileList) md.push({ name: f.name, text: await f.text() });
-    if (!md.length) return;
-    const res = await fetch("/api/syllabus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: md }) });
-    const j = await res.json().catch(() => ({}));
-    if (j.files) { setFiles(j.files); setChunkCount(j.chunkCount); refreshSubjects(); }
-  }
-
-  const refreshSubjects = useCallback(async () => {
-    const res = await fetch("/api/me");
-    if (res.ok) {
-      const j = await res.json();
-      if (j.subjects) setSubjects(j.subjects.filter((s: Subject) => !isHiddenSubject(s.name)));
-      if (j.chunkCount != null) setChunkCount(j.chunkCount);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (screen === "library" && files.length === 0) {
-      fetch("/api/syllabus").then((r) => (r.ok ? r.json() : null)).then((j) => {
-        if (j?.files) { setFiles(j.files); setChunkCount(j.chunkCount); }
-      });
-    }
-  }, [screen, files.length]);
-
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.refresh();
@@ -569,6 +541,57 @@ export default function StudentApp({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notificationId: id }),
     }).catch(() => {});
+  }
+
+  // Fetch the @mention recipient list once when the panel first opens.
+  useEffect(() => {
+    if (!linked || !notifOpen || recipients.length > 0) return;
+    fetch("/api/wall/recipients")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (Array.isArray(j?.recipients)) setRecipients(j.recipients); })
+      .catch(() => {});
+  }, [linked, notifOpen, recipients.length]);
+
+  // The word currently being typed, if it starts with '@' (drives the mention dropdown).
+  const mentionQuery = useMemo(() => {
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(composeText);
+    return m ? m[1] : null;
+  }, [composeText]);
+
+  const mentionMatches = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return recipients.filter((r) => (r.displayName || r.name).toLowerCase().includes(q));
+  }, [mentionQuery, recipients]);
+
+  function insertMention(r: Recipient) {
+    const label = r.displayName || r.name;
+    setComposeText((t) => t.replace(/@[^\s@]*$/, `@${label} `));
+  }
+
+  async function sendWallMessage() {
+    const content = composeText.trim();
+    if (!content || sending) return;
+    setSending(true);
+    setSendError("");
+    try {
+      const res = await fetch("/api/wall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) throw new Error("send failed");
+      setComposeText("");
+      // Refresh notifications so any resulting message shows up.
+      fetch("/api/notifications")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (j) setNotif({ flags: j.flags || [], messages: j.messages || [], unreadCount: j.unreadCount || 0 }); })
+        .catch(() => {});
+    } catch {
+      setSendError("Couldn't send — please try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   // ---------------------------------------------------------------- derived
@@ -692,6 +715,33 @@ export default function StudentApp({
                 </div>
               ))}
             </div>
+
+            {/* Compose — student replies to a teacher/guardian */}
+            <div style={{ borderTop: "1px solid #E2DBCE", background: "#fff", padding: "14px 16px", position: "relative" }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 14, marginBottom: 8, color: "#23201B" }}>Send a message</div>
+              {mentionMatches.length > 0 && (
+                <div style={{ position: "absolute", left: 16, right: 16, bottom: 108, background: "#fff", border: "1px solid #E7E1D6", borderRadius: 12, boxShadow: "0 8px 20px rgba(0,0,0,.14)", maxHeight: 180, overflowY: "auto", zIndex: 5 }}>
+                  {mentionMatches.map((r) => (
+                    <button key={r.id} onClick={() => insertMention(r)}
+                      style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: "1px solid #F1ECE2", padding: "9px 12px", cursor: "pointer" }}>
+                      <span style={{ fontWeight: 700, fontSize: 14, color: "#23201B" }}>{r.displayName || r.name}</span>
+                      <span style={{ fontSize: 12, color: "#8A8172", marginLeft: 6 }}>{r.role.replace(/_/g, " ")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <textarea value={composeText} onChange={(e) => setComposeText(e.target.value)}
+                placeholder="Write a message… type @ to mention a teacher or guardian"
+                rows={2}
+                style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E0D9CC", borderRadius: 12, padding: "10px 12px", fontSize: 14, fontFamily: DISPLAY, maxHeight: 120 }} />
+              {sendError && <div style={{ fontSize: 12, color: "#C0392B", marginTop: 6 }}>{sendError}</div>}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <button onClick={sendWallMessage} disabled={!composeText.trim() || sending}
+                  style={{ background: !composeText.trim() || sending ? "#C7C2F0" : "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: !composeText.trim() || sending ? "default" : "pointer" }}>
+                  {sending ? "Sending…" : "Send"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -700,7 +750,6 @@ export default function StudentApp({
       <div style={{ width: 88, flex: "0 0 88px", background: "#23201B", display: "flex", flexDirection: "column", alignItems: "center", padding: "22px 0", gap: 8, position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ width: 46, height: 46, borderRadius: 14, background: "linear-gradient(150deg,#6B62F5,#4C43D9)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: DISPLAY, fontWeight: 800, color: "#fff", fontSize: 22, boxShadow: "0 6px 18px rgba(76,67,217,.5)", marginBottom: 14 }}>J</div>
         <button onClick={() => setScreen("home")} title="Home" style={navBtn("home")}>⌂</button>
-        <button onClick={() => setScreen("library")} title="Syllabus Library" style={navBtn("library")}>▤</button>
         <button onClick={() => setScreen("tracker")} title="Progress Tracker" style={navBtn("tracker")}>◔</button>
         {linked && (
           <button onClick={() => setNotifOpen(true)} title="Notifications" style={{ ...navBtn("home"), background: notifOpen ? "#4C43D9" : "transparent", position: "relative" }}>
@@ -728,14 +777,9 @@ export default function StudentApp({
           <HomeScreen
             name={user.name} subjects={subjects} tracker={tracker} dueList={dueList}
             fmt={fmt} findGo={findGo} inProgressTopics={inProgressTopics}
-            openTopic={openTopic} goLibrary={() => setScreen("library")}
+            openTopic={openTopic}
             flaggedIds={flaggedIds}
           />
-        )}
-
-        {screen === "library" && (
-          <LibraryScreen files={files} chunkCount={chunkCount} dragOver={dragOver}
-            setDragOver={setDragOver} driveLink={driveLink} setDriveLink={setDriveLink} onFiles={uploadFiles} />
         )}
 
         {screen === "tracker" && (
@@ -853,14 +897,13 @@ function UsefulResources({ images }: { images: TopicImage[] }) {
 
 /* ===== HOME ===== */
 function HomeScreen({
-  name, subjects, tracker, dueList, fmt, findGo, inProgressTopics, openTopic, goLibrary, flaggedIds,
+  name, subjects, tracker, dueList, fmt, findGo, inProgressTopics, openTopic, flaggedIds,
 }: {
   name: string; subjects: Subject[]; tracker: Tracker;
   dueList: { id: string; name: string; due: number; overdue: boolean }[];
   fmt: (d: number) => string; findGo: (id: string) => () => void;
   inProgressTopics: ProgressEntry[];
   openTopic: (s: Subject, t: { id: string; name: string }) => void;
-  goLibrary: () => void;
   flaggedIds: Set<string>;
 }) {
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({});
@@ -925,7 +968,6 @@ function HomeScreen({
       {/* Subjects — collapsible grid */}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 20 }}>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 22, margin: 0 }}>Your subjects</h2>
-        <button onClick={goLibrary} style={{ background: "none", border: "none", color: "#4C43D9", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>Manage syllabus →</button>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -986,43 +1028,6 @@ function HomeScreen({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/* ===== LIBRARY ===== */
-function LibraryScreen({ files, chunkCount, dragOver, setDragOver, driveLink, setDriveLink, onFiles }: {
-  files: SyllabusFile[]; chunkCount: number; dragOver: boolean;
-  setDragOver: (b: boolean) => void; driveLink: string; setDriveLink: (s: string) => void; onFiles: (f: File[]) => void;
-}) {
-  return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "54px 48px 80px", animation: "jfade .4s ease" }}>
-      <h1 style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 38, margin: "0 0 4px", letterSpacing: "-.02em" }}>Syllabus Library</h1>
-      <p style={{ fontSize: 17, color: "#6B6459", margin: "0 0 30px", maxWidth: 600 }}>Jarvis grounds every explanation in <strong>your</strong> curriculum. Drop in the <code>.md</code> files for your units.</p>
-      <div onDrop={(e) => { e.preventDefault(); setDragOver(false); onFiles(Array.from(e.dataTransfer.files || []).filter((f) => /\.(md|markdown|txt)$/i.test(f.name))); }} onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }} onDragLeave={() => setDragOver(false)}
-        style={{ border: `2px dashed ${dragOver ? "#4C43D9" : "#CFC7B8"}`, background: dragOver ? "#F3F1FB" : "#fff", borderRadius: 22, padding: 40, textAlign: "center", transition: ".15s" }}>
-        <div style={{ fontSize: 40 }}>📄</div>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 20, marginTop: 8 }}>Drag &amp; drop your .md syllabus files</div>
-        <div style={{ color: "#8A8172", fontSize: 14, margin: "6px 0 18px" }}>Markdown files, chunked by heading and indexed with TF-IDF retrieval on the server.</div>
-        <label style={{ display: "inline-block", background: "#4C43D9", color: "#fff", borderRadius: 12, padding: "12px 22px", fontWeight: 700, cursor: "pointer" }}>
-          Choose files
-          <input type="file" accept=".md,.markdown,.txt" multiple onChange={(e) => onFiles(Array.from(e.target.files || []))} style={{ display: "none" }} />
-        </label>
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", margin: "24px 0 14px" }}>
-        <h2 style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 20, margin: 0 }}>Indexed files</h2>
-        <span style={{ fontSize: 13, color: "#8A8172" }}>{chunkCount} chunks retrievable</span>
-      </div>
-      {files.map((f) => (
-        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid #E7E1D6", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
-          <span style={{ fontSize: 20 }}>📄</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{f.name}</div>
-            <div style={{ fontSize: 12, color: "#8A8172" }}>{f.count} sections indexed</div>
-          </div>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#2E9E6B" }}>● indexed</span>
-        </div>
-      ))}
     </div>
   );
 }

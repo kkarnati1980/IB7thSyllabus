@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type WallMessage = {
   id: string;
@@ -12,6 +12,8 @@ type WallMessage = {
   subject_context: string | null;
   grade_context: string | null;
 };
+
+type Recipient = { id: string; name: string; role: string; displayName: string };
 
 const ROLE_COLOR: Record<string, string> = {
   grade_teacher: "#7A5AC2",
@@ -48,9 +50,16 @@ export default function Wall({
 }) {
   const [messages, setMessages] = useState<WallMessage[]>([]);
   const [content, setContent] = useState("");
-  const [recipient, setRecipient] = useState("");
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const canPost = role !== "guardian" && !readOnly;
+  const isTeacher = role === "subject_teacher" || role === "grade_teacher";
 
   const load = useCallback(async () => {
     try {
@@ -69,28 +78,63 @@ export default function Wall({
     return () => clearInterval(t);
   }, [load]);
 
-  const canPost = role !== "guardian" && !readOnly;
+  useEffect(() => {
+    if (!canPost) return;
+    fetch("/api/wall/recipients")
+      .then((r) => (r.ok ? r.json() : { recipients: [] }))
+      .then((j) => setRecipients(Array.isArray(j.recipients) ? j.recipients : []))
+      .catch(() => {});
+  }, [canPost]);
+
+  // Build the mention menu: filter recipients by the word after "@", plus @all for teachers.
+  const q = mentionQuery.toLowerCase();
+  const mentionOptions: { label: string; sub: string }[] = [];
+  if (isTeacher && "all".startsWith(q)) mentionOptions.push({ label: "all", sub: "Broadcast to everyone" });
+  for (const r of recipients) {
+    if (r.displayName.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)) {
+      mentionOptions.push({ label: r.displayName, sub: r.role.replace("_", " ") });
+      if (mentionOptions.length >= 8) break;
+    }
+  }
+
+  function onChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    const pos = e.target.selectionStart ?? val.length;
+    setContent(val);
+    setCaret(pos);
+    const m = val.slice(0, pos).match(/@([^\s@]*)$/);
+    if (m) {
+      setMentionQuery(m[1]);
+      setMentionOpen(true);
+    } else {
+      setMentionOpen(false);
+    }
+  }
+
+  function insertMention(label: string) {
+    const before = content.slice(0, caret).replace(/@([^\s@]*)$/, "@" + label + " ");
+    const next = before + content.slice(caret);
+    setContent(next);
+    setMentionOpen(false);
+    requestAnimationFrame(() => taRef.current?.focus());
+  }
 
   async function post() {
     if (!content.trim() || sending) return;
     setSending(true);
     setError("");
     try {
-      const body: Record<string, string> = { content: content.trim() };
-      if (recipient.trim()) body.toUserId = recipient.trim();
-      else if (subjectContext) body.subjectContext = subjectContext;
-      else body.gradeContext = "7";
       const r = await fetch("/api/wall", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ content: content.trim() }),
       });
       if (!r.ok) {
         setError("Could not send message");
         return;
       }
       setContent("");
-      setRecipient("");
+      setMentionOpen(false);
       await load();
     } catch {
       setError("Could not send message");
@@ -157,42 +201,86 @@ export default function Wall({
             gap: 8,
           }}
         >
-          {(role === "subject_teacher" || role === "grade_teacher") && (
-            <input
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
+          <div style={{ position: "relative" }}>
+            <textarea
+              ref={taRef}
+              value={content}
+              onChange={onChange}
+              onKeyDown={(e) => {
+                if (mentionOpen && mentionOptions.length && e.key === "Enter") {
+                  e.preventDefault();
+                  insertMention(mentionOptions[0].label);
+                  return;
+                }
+                if (e.key === "Escape") setMentionOpen(false);
+                if (e.key === "Enter" && !e.shiftKey && !mentionOpen) {
+                  e.preventDefault();
+                  post();
+                }
+              }}
               placeholder={
-                subjectContext
-                  ? `Broadcast to all ${subjectContext} students (or enter a student ID)`
-                  : "Broadcast to the whole grade (or enter a student ID)"
+                isTeacher ? "Write a message… use @name or @all" : "Write a message… use @name"
               }
+              rows={2}
               style={{
+                width: "100%",
                 border: "1px solid #E0D9CC",
                 borderRadius: 10,
-                padding: "9px 11px",
-                fontSize: 13,
+                padding: "10px 12px",
+                fontSize: 14,
+                resize: "none",
+                fontFamily: "'Bricolage Grotesque',system-ui,sans-serif",
+                boxSizing: "border-box",
               }}
             />
-          )}
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                post();
-              }
-            }}
-            placeholder="Write a message…"
-            rows={2}
-            style={{
-              border: "1px solid #E0D9CC",
-              borderRadius: 10,
-              padding: "10px 12px",
-              fontSize: 14,
-              resize: "none",
-            }}
-          />
+            {mentionOpen && mentionOptions.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: "100%",
+                  marginTop: 4,
+                  background: "#fff",
+                  border: "1px solid #E7E1D6",
+                  borderRadius: 10,
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
+                  zIndex: 20,
+                  overflow: "hidden",
+                  maxHeight: 220,
+                  overflowY: "auto",
+                }}
+              >
+                {mentionOptions.map((o) => (
+                  <button
+                    key={o.label}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      insertMention(o.label);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      width: "100%",
+                      textAlign: "left",
+                      background: "none",
+                      border: "none",
+                      borderBottom: "1px solid #F1ECE2",
+                      padding: "9px 12px",
+                      fontSize: 13,
+                      cursor: "pointer",
+                      fontFamily: "'Bricolage Grotesque',system-ui,sans-serif",
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, color: "#23201B" }}>@{o.label}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 11, color: "#A79E8E" }}>{o.sub}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {error && <div style={{ fontSize: 12, color: "#C0392B" }}>{error}</div>}
           <button
             onClick={post}

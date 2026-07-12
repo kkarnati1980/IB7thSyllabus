@@ -1,8 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { execute, nowIso, query, queryOne, uid } from "@/lib/db";
+import { getAllowedRecipients, type Recipient } from "@/lib/wall-recipients";
 
 export const runtime = "nodejs";
+
+// Parse @mentions from free text. @all wins → broadcast. Otherwise the FIRST
+// resolved @Name (matched against allowed recipients' name/displayName,
+// case-insensitive) becomes the single DM target.
+function resolveMention(
+  content: string,
+  recipients: Recipient[]
+): { broadcast: boolean; toUserId: string | null } {
+  if (/@all\b/i.test(content)) return { broadcast: true, toUserId: null };
+  const lower = content.toLowerCase();
+  let best: { idx: number; id: string } | null = null;
+  for (const r of recipients) {
+    for (const label of [r.name, r.displayName]) {
+      if (!label) continue;
+      const idx = lower.indexOf("@" + label.toLowerCase());
+      if (idx >= 0 && (best === null || idx < best.idx)) best = { idx, id: r.id };
+    }
+  }
+  return { broadcast: false, toUserId: best ? best.id : null };
+}
 
 type WallRow = {
   id: string;
@@ -37,9 +58,16 @@ export async function GET() {
         "SELECT id FROM users WHERE guardian_id = $1 AND role = 'student' LIMIT 1",
         [user.id]
       );
-      if (!child) return NextResponse.json({ messages: [] });
-      where = "wm.to_user_id = $1 OR (wm.to_user_id IS NULL AND (wm.grade_context = '7' OR wm.subject_context IS NOT NULL))";
-      params = [child.id];
+      if (child) {
+        // Direct DMs to the guardian, teacher→child DMs, and child's broadcasts.
+        where = `wm.to_user_id = $1
+              OR (wm.to_user_id = $2 AND u.role IN ('grade_teacher', 'subject_teacher'))
+              OR (wm.to_user_id IS NULL AND (wm.grade_context = '7' OR wm.subject_context IS NOT NULL))`;
+        params = [user.id, child.id];
+      } else {
+        where = "wm.to_user_id = $1";
+        params = [user.id];
+      }
     } else if (user.role === "grade_teacher") {
       where = "wm.grade_context = '7' OR wm.subject_context IS NOT NULL OR wm.to_user_id = $1 OR wm.from_user_id = $1";
       params = [user.id];
@@ -85,39 +113,58 @@ export async function POST(req: NextRequest) {
     const content = (body.content ?? "").trim();
     if (!content) return NextResponse.json({ error: "content required" }, { status: 400 });
 
-    // Scope-gate the broadcast/DM fields by role so a caller can't exceed their reach.
-    let toUserId = body.toUserId ?? null;
-    let subjectContext = body.subjectContext ?? null;
-    let gradeContext = body.gradeContext ?? null;
-    let targetRole: string | null = null;
-    if (toUserId) {
-      const target = await queryOne<{ role: string }>("SELECT role FROM users WHERE id = $1", [toUserId]);
-      if (!target) return NextResponse.json({ error: "Recipient not found" }, { status: 400 });
-      targetRole = target.role;
+    // Resolve the target: parse @mentions first, else fall back to explicit
+    // body fields (back-compat with older portals).
+    const recipients = await getAllowedRecipients(user);
+    const byId = new Map(recipients.map((r) => [r.id, r]));
+    const mention = resolveMention(content, recipients);
+
+    let toUserId: string | null;
+    if (mention.broadcast) {
+      toUserId = null;
+    } else if (mention.toUserId) {
+      toUserId = mention.toUserId;
+    } else {
+      toUserId = body.toUserId ?? null;
     }
 
+    // A resolved DM target must be inside the caller's allowed set.
+    if (toUserId && !byId.has(toUserId)) {
+      return NextResponse.json({ error: "Recipient not allowed" }, { status: 403 });
+    }
+    const targetRole = toUserId ? byId.get(toUserId)!.role : null;
+    const broadcast = !toUserId;
+
+    let subjectContext: string | null = null;
+    let gradeContext: string | null = null;
+
     if (user.role === "student") {
-      // Students may join a subject wall or DM a teacher — never grade-wide, never DM a peer.
-      gradeContext = null;
-      if (toUserId && !["subject_teacher", "grade_teacher", "admin"].includes(targetRole ?? "")) {
-        return NextResponse.json({ error: "Students may only message teachers" }, { status: 403 });
+      // Students may only DM a teacher or their guardian — never broadcast, never a peer.
+      if (broadcast) {
+        return NextResponse.json({ error: "Students must message a teacher or guardian" }, { status: 403 });
+      }
+      if (!["subject_teacher", "grade_teacher", "guardian", "admin"].includes(targetRole ?? "")) {
+        return NextResponse.json({ error: "Students may only message teachers or their guardian" }, { status: 403 });
       }
     } else if (user.role === "subject_teacher") {
-      gradeContext = null; // grade-wide broadcast is the grade teacher's scope
-      if (subjectContext) {
-        const ok = await queryOne(
-          "SELECT 1 FROM subject_assignments WHERE teacher_id = $1 AND subject_name = $2 AND grade_level_id = 'grade_7_iish'",
-          [user.id, subjectContext]
+      if (broadcast) {
+        // Broadcast lands on an assigned subject wall (never grade-wide).
+        const subs = await query<{ subject_name: string }>(
+          "SELECT subject_name FROM subject_assignments WHERE teacher_id = $1 AND grade_level_id = 'grade_7_iish' ORDER BY subject_name",
+          [user.id]
         );
-        if (!ok) return NextResponse.json({ error: "Not assigned to that subject" }, { status: 403 });
-      }
-      if (toUserId && targetRole !== "student") {
-        return NextResponse.json({ error: "Teachers may only DM students" }, { status: 403 });
+        if (!subs.length) return NextResponse.json({ error: "Not assigned to any subject" }, { status: 403 });
+        const wanted = body.subjectContext;
+        subjectContext = wanted && subs.some((s) => s.subject_name === wanted) ? wanted : subs[0].subject_name;
+      } else if (targetRole !== "student" && targetRole !== "guardian") {
+        return NextResponse.json({ error: "Subject teachers may only DM students or guardians" }, { status: 403 });
       }
     } else if (user.role === "grade_teacher") {
-      if (gradeContext) gradeContext = "7"; // only grade 7 exists
+      // May DM anyone in grade or broadcast grade-wide.
+      if (broadcast) gradeContext = "7";
+    } else if (user.role === "admin") {
+      if (broadcast) gradeContext = "7";
     }
-    // admin: unrestricted
 
     const id = uid("wm");
     await execute(

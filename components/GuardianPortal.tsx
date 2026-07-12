@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Wall from "@/components/Wall";
 
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
@@ -9,6 +10,7 @@ const BG = "#EFEAE0";
 const CARD = "#fff";
 const BORDER = "#E7E1D6";
 const DANGER = "#C0392B";
+const DARK = "#23201B";
 
 type Child = { id: string; name: string; display_name: string | null } | null;
 
@@ -30,6 +32,8 @@ type Assessment = {
   criterion_name: string | null;
 };
 
+type TeacherContentItem = { id: string; title: string; content_type: string; content: string };
+
 // IB 1-7 color coding
 function ibColor(grade: number | null): string {
   if (grade == null) return "#9A907E";
@@ -39,12 +43,13 @@ function ibColor(grade: number | null): string {
   return "#1E7A4E";
 }
 
-function timeAgo(iso: string): string {
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+function safeHttpUrl(u: string): string | null {
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:" ? p.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function GradePill({ grade }: { grade: number | null }) {
@@ -69,6 +74,71 @@ function GradePill({ grade }: { grade: number | null }) {
   );
 }
 
+/* ===== FROM YOUR TEACHER (matches StudentApp) ===== */
+function TeacherContent({ items }: { items: TeacherContentItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div style={{ marginTop: 12, borderTop: `1px solid ${BORDER}`, paddingTop: 12 }}>
+      <div
+        style={{
+          fontFamily: DISPLAY,
+          fontWeight: 700,
+          fontSize: 13,
+          color: PRIMARY,
+          marginBottom: 10,
+          textTransform: "uppercase",
+          letterSpacing: ".06em",
+        }}
+      >
+        📚 From your teacher
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((c) => {
+          if (c.content_type === "image") {
+            const src = safeHttpUrl(c.content);
+            if (!src) return null;
+            return (
+              <div key={c.id} style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${BORDER}`, background: "#fff" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={c.title} style={{ width: "100%", maxHeight: 300, objectFit: "cover", display: "block" }} />
+                <div style={{ padding: "8px 12px", fontSize: 13, fontWeight: 600, color: DARK }}>{c.title}</div>
+              </div>
+            );
+          }
+          if (c.content_type === "video") {
+            const href = safeHttpUrl(c.content);
+            if (!href) return null;
+            return (
+              <a
+                key={c.id}
+                href={href}
+                target="_blank"
+                rel="noreferrer noopener"
+                style={{ display: "block", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 16, padding: "14px 16px", textDecoration: "none" }}
+              >
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 12, background: "#FDECEA", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flex: "0 0 42px" }}>▶</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: DARK, lineHeight: 1.3 }}>{c.title}</div>
+                    <div style={{ fontSize: 12, color: "#4A453C", marginTop: 4, lineHeight: 1.45, wordBreak: "break-all" }}>{c.content}</div>
+                  </div>
+                  <div style={{ color: DANGER, fontSize: 16, flex: "0 0 16px" }}>↗</div>
+                </div>
+              </a>
+            );
+          }
+          return (
+            <div key={c.id} style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 16, padding: "14px 16px" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: DARK, marginBottom: 4 }}>{c.title}</div>
+              <div style={{ fontSize: 13, color: "#4A453C", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{c.content}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function GuardianPortal({
   child,
   guardianName,
@@ -76,9 +146,12 @@ export default function GuardianPortal({
   child: Child;
   guardianName: string;
 }) {
+  const router = useRouter();
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [details, setDetails] = useState<Record<string, Assessment[]>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
+  const [teacherContent, setTeacherContent] = useState<Record<string, TeacherContentItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -100,7 +173,7 @@ export default function GuardianPortal({
       const rows = Array.isArray(j.subjects) ? j.subjects : [];
       setSubjects(rows);
 
-      // Fetch per-subject topic detail (powers expansion + timeline) — small subject count.
+      // Fetch per-subject topic detail (powers expansion + flags + last-active) — small subject count.
       const pairs = await Promise.all(
         rows.map(async (s): Promise<[string, Assessment[]]> => {
           try {
@@ -131,21 +204,63 @@ export default function GuardianPortal({
     void load();
   }, [load]);
 
+  const logout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+    } catch (e) {
+      console.error("logout failed", e);
+    }
+    router.push("/");
+  }, [router]);
+
+  // Expand a topic and lazily fetch its "From your teacher" content.
+  const toggleTopic = useCallback(
+    async (subjectName: string, topicName: string | null) => {
+      const key = `${subjectName}::${topicName ?? ""}`;
+      if (expandedTopic === key) {
+        setExpandedTopic(null);
+        return;
+      }
+      setExpandedTopic(key);
+      if (!topicName || teacherContent[key]) return;
+      try {
+        const r = await fetch(
+          `/api/teacher/content?subjectName=${encodeURIComponent(subjectName)}&topicName=${encodeURIComponent(
+            topicName
+          )}&visible=true`,
+          { credentials: "same-origin" }
+        );
+        if (!r.ok) return;
+        const j = (await r.json()) as { content?: TeacherContentItem[] };
+        setTeacherContent((prev) => ({ ...prev, [key]: Array.isArray(j.content) ? j.content : [] }));
+      } catch (e) {
+        console.error("teacher content load failed", e);
+      }
+    },
+    [expandedTopic, teacherContent]
+  );
+
   const overallAvg = useMemo(() => {
     const vals = subjects.map((s) => s.overall).filter((v): v is number => typeof v === "number");
     if (vals.length === 0) return null;
     return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
   }, [subjects]);
 
-  const timeline = useMemo(() => {
-    const all: { subjectName: string; a: Assessment }[] = [];
-    for (const [subjectName, list] of Object.entries(details)) {
+  // Unresolved flags = unconfirmed assessments across all subjects.
+  const flagCount = useMemo(
+    () => Object.values(details).reduce((n, list) => n + list.filter((a) => !a.confirmed).length, 0),
+    [details]
+  );
+
+  const lastActive = useMemo(() => {
+    let max = 0;
+    for (const list of Object.values(details)) {
       for (const a of list) {
-        if (a.topic_name && a.updated_at) all.push({ subjectName, a });
+        const t = new Date(a.updated_at).getTime();
+        if (Number.isFinite(t) && t > max) max = t;
       }
     }
-    all.sort((x, y) => new Date(y.a.updated_at).getTime() - new Date(x.a.updated_at).getTime());
-    return all.slice(0, 15);
+    return max ? new Date(max).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : null;
   }, [details]);
 
   const childName = child?.display_name || child?.name || "";
@@ -160,18 +275,56 @@ export default function GuardianPortal({
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: BG, padding: "24px 16px" }}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 700, color: "#2B2620" }}>
-            Guardian Portal
+    <div style={{ minHeight: "100vh", background: BG }}>
+      {/* Header bar */}
+      <div style={{ background: DARK, color: "#fff", padding: "14px 20px" }}>
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: PRIMARY,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontFamily: DISPLAY,
+              fontSize: 20,
+              fontWeight: 800,
+              flexShrink: 0,
+            }}
+          >
+            J
           </div>
-          <div style={{ color: "#6A6152", fontSize: 14 }}>Signed in as {guardianName}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>
+              Jarvis Guardian Portal
+            </div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,.6)" }}>Signed in as {guardianName}</div>
+          </div>
+          <button
+            onClick={() => void logout()}
+            style={{
+              background: DANGER,
+              color: "#fff",
+              border: "none",
+              borderRadius: 10,
+              padding: "8px 16px",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            Logout
+          </button>
         </div>
+      </div>
 
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px 16px" }}>
         {!child ? (
           <div style={{ ...cardStyle, textAlign: "center", padding: 40 }}>
-            <div style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: "#2B2620" }}>
+            <div style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: DARK }}>
               No student is linked to your account yet
             </div>
             <div style={{ color: "#6A6152", marginTop: 8 }}>
@@ -181,46 +334,88 @@ export default function GuardianPortal({
         ) : (
           <>
             {/* Overview */}
-            <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div
+              style={{
+                background: "linear-gradient(135deg,#4C43D9,#7A5AC2)",
+                borderRadius: 16,
+                padding: 22,
+                marginBottom: 16,
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                gap: 18,
+                flexWrap: "wrap",
+              }}
+            >
               <div
                 style={{
-                  width: 56,
-                  height: 56,
+                  width: 64,
+                  height: 64,
                   borderRadius: "50%",
-                  background: PRIMARY,
-                  color: "#fff",
+                  background: "rgba(255,255,255,.18)",
+                  border: "2px solid rgba(255,255,255,.35)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontFamily: DISPLAY,
-                  fontSize: 24,
-                  fontWeight: 700,
+                  fontSize: 28,
+                  fontWeight: 800,
                   flexShrink: 0,
                 }}
               >
                 {initial}
               </div>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: "#2B2620" }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontFamily: DISPLAY, fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>
                   {childName}
                 </div>
-                <div style={{ color: "#6A6152", fontSize: 13 }}>
-                  {subjects.length} subject{subjects.length === 1 ? "" : "s"}
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 14 }}>
+                  <span style={{ color: "rgba(255,255,255,.85)" }}>
+                    {subjects.length} subject{subjects.length === 1 ? "" : "s"} · Overall IB Grade:
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minWidth: 30,
+                      height: 28,
+                      padding: "0 8px",
+                      borderRadius: 8,
+                      background: ibColor(overallAvg),
+                      color: "#fff",
+                      fontWeight: 800,
+                      fontFamily: DISPLAY,
+                    }}
+                  >
+                    {overallAvg ?? "–"}
+                  </span>
+                  {flagCount > 0 && (
+                    <span
+                      style={{
+                        background: DANGER,
+                        color: "#fff",
+                        borderRadius: 20,
+                        padding: "3px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      ⚑ {flagCount} flag{flagCount === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: "#6A6152", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  Overall
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <GradePill grade={overallAvg} />
-                </div>
+                {lastActive && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: "rgba(255,255,255,.7)" }}>
+                    Last active {lastActive}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Subjects */}
             <div style={cardStyle}>
-              <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: "#2B2620", marginBottom: 12 }}>
+              <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 12 }}>
                 Subjects
               </div>
               {loading ? (
@@ -233,6 +428,7 @@ export default function GuardianPortal({
                 subjects.map((s) => {
                   const isOpen = expanded === s.subjectName;
                   const topics = details[s.subjectName] ?? [];
+                  const subjectFlags = topics.filter((t) => !t.confirmed).length;
                   return (
                     <div
                       key={s.subjectName}
@@ -253,7 +449,12 @@ export default function GuardianPortal({
                         }}
                       >
                         <GradePill grade={s.overall} />
-                        <span style={{ flex: 1, fontWeight: 600, color: "#2B2620" }}>{s.subjectName}</span>
+                        <span style={{ flex: 1, fontWeight: 600, color: DARK, display: "flex", alignItems: "center", gap: 8 }}>
+                          {s.subjectName}
+                          {subjectFlags > 0 && (
+                            <span style={{ color: DANGER, fontSize: 12, fontWeight: 700 }}>⚑ {subjectFlags}</span>
+                          )}
+                        </span>
                         <span style={{ display: "flex", gap: 6 }}>
                           {(["A", "B", "C", "D"] as const).map((c) => (
                             <span
@@ -280,30 +481,46 @@ export default function GuardianPortal({
                           {topics.length === 0 ? (
                             <div style={{ color: "#6A6152", fontSize: 13 }}>No topic detail available.</div>
                           ) : (
-                            topics.map((t) => (
-                              <div
-                                key={t.id}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 10,
-                                  padding: "6px 0",
-                                  fontSize: 13,
-                                  color: !t.confirmed ? DANGER : "#3A342B",
-                                }}
-                              >
-                                <span style={{ fontWeight: 600, minWidth: 24 }}>{t.criterion}</span>
-                                <span style={{ flex: 1 }}>
-                                  {t.topic_name || t.criterion_name || "—"}
-                                  {!t.confirmed && (
-                                    <span style={{ color: DANGER, fontWeight: 600 }}> · unconfirmed</span>
-                                  )}
-                                </span>
-                                <span style={{ color: "#6A6152" }}>
-                                  {t.raw_score != null ? `${t.raw_score}/8` : "–"}
-                                </span>
-                              </div>
-                            ))
+                            topics.map((t) => {
+                              const tKey = `${s.subjectName}::${t.topic_name ?? ""}`;
+                              const tOpen = expandedTopic === tKey;
+                              return (
+                                <div key={t.id} style={{ borderTop: `1px solid ${BORDER}` }}>
+                                  <button
+                                    onClick={() => void toggleTopic(s.subjectName, t.topic_name)}
+                                    style={{
+                                      width: "100%",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 10,
+                                      padding: "8px 0",
+                                      fontSize: 13,
+                                      background: "none",
+                                      border: "none",
+                                      cursor: "pointer",
+                                      textAlign: "left",
+                                      color: !t.confirmed ? DANGER : "#3A342B",
+                                    }}
+                                  >
+                                    <span style={{ fontWeight: 600, minWidth: 24 }}>{t.criterion}</span>
+                                    <span style={{ flex: 1 }}>
+                                      {t.topic_name || t.criterion_name || "—"}
+                                      {!t.confirmed && (
+                                        <span style={{ color: DANGER, fontWeight: 600 }}>
+                                          {" "}
+                                          ⚑ awaiting confirmation
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span style={{ color: "#6A6152" }}>
+                                      {t.raw_score != null ? `${t.raw_score}/8` : "–"}
+                                    </span>
+                                    <span style={{ color: "#9A907E", fontSize: 11 }}>{tOpen ? "▲" : "▼"}</span>
+                                  </button>
+                                  {tOpen && <TeacherContent items={teacherContent[tKey] ?? []} />}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       )}
@@ -315,41 +532,13 @@ export default function GuardianPortal({
 
             {/* Wall (read-only) */}
             <div style={cardStyle}>
-              <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: "#2B2620", marginBottom: 12 }}>
-                Messages
+              <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 4 }}>
+                Messages from teachers
+              </div>
+              <div style={{ color: "#6A6152", fontSize: 13, marginBottom: 12 }}>
+                Updates your child&apos;s teachers have shared. You can read but not reply here.
               </div>
               <Wall role="guardian" readOnly />
-            </div>
-
-            {/* Progress timeline */}
-            <div style={cardStyle}>
-              <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, color: "#2B2620", marginBottom: 12 }}>
-                Recent activity
-              </div>
-              {timeline.length === 0 ? (
-                <div style={{ color: "#6A6152", fontSize: 13 }}>No recent activity yet.</div>
-              ) : (
-                timeline.map(({ subjectName, a }) => (
-                  <div
-                    key={a.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 0",
-                      borderTop: `1px solid ${BORDER}`,
-                      fontSize: 13,
-                    }}
-                  >
-                    <GradePill grade={a.overall_1_7} />
-                    <span style={{ flex: 1, color: "#3A342B" }}>
-                      <strong>{subjectName}</strong> · {a.topic_name} ({a.criterion}
-                      {a.raw_score != null ? ` ${a.raw_score}/8` : ""})
-                    </span>
-                    <span style={{ color: "#9A907E" }}>{timeAgo(a.updated_at)}</span>
-                  </div>
-                ))
-              )}
             </div>
           </>
         )}
