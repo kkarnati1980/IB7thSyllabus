@@ -1,50 +1,46 @@
 import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
-import { audit, db, nowIso } from "./db";
+import { audit, execute, nowIso, queryOne } from "./db";
 
 export const SESSION_COOKIE = "jarvis_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 export type User = {
   id: string;
   name: string;
   email: string;
   role: "student" | "admin";
-  active: number;
+  active: boolean;
   created_at: string;
 };
 
-export function createSession(userId: string): string {
+export async function createSession(userId: string): Promise<string> {
   const token = randomBytes(32).toString("hex");
   const created = new Date();
   const expires = new Date(created.getTime() + SESSION_TTL_MS);
-  db.prepare(
-    "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
-  ).run(token, userId, created.toISOString(), expires.toISOString());
+  await execute(
+    "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)",
+    [token, userId, created.toISOString(), expires.toISOString()]
+  );
   return token;
 }
 
-export function destroySession(token: string): void {
-  db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+export async function destroySession(token: string): Promise<void> {
+  await execute("DELETE FROM sessions WHERE token = $1", [token]);
 }
 
-/** Resolve the currently authenticated user from the session cookie, or null. */
 export async function getCurrentUser(): Promise<User | null> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-
-  const row = db
-    .prepare(
-      `SELECT u.id, u.name, u.email, u.role, u.active, u.created_at, s.expires_at
-         FROM sessions s JOIN users u ON u.id = s.user_id
-        WHERE s.token = ?`
-    )
-    .get(token) as (User & { expires_at: string }) | undefined;
-
+  const row = await queryOne<User & { expires_at: string }>(
+    `SELECT u.id, u.name, u.email, u.role, u.active, u.created_at, s.expires_at
+       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
+    [token]
+  );
   if (!row) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    destroySession(token);
+    await destroySession(token);
     return null;
   }
   if (!row.active) return null;
@@ -73,16 +69,19 @@ export async function logout(): Promise<void> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (token) {
-    const row = db.prepare("SELECT user_id FROM sessions WHERE token = ?").get(token) as
-      | { user_id: string }
-      | undefined;
-    destroySession(token);
-    audit("LOGOUT", "User logged out", row?.user_id ?? null);
+    const row = await queryOne<{ user_id: string }>("SELECT user_id FROM sessions WHERE token = $1", [token]);
+    await destroySession(token);
+    await audit("LOGOUT", "User logged out", row?.user_id ?? null);
   }
   await clearSessionCookie();
 }
 
-/** Reap expired sessions (best-effort housekeeping). */
-export function reapSessions(): void {
-  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(nowIso());
+export async function reapSessions(): Promise<void> {
+  await execute("DELETE FROM sessions WHERE expires_at < $1", [nowIso()]);
+}
+
+export async function getUserByEmail(email: string): Promise<
+  { id: string; pass_hash: string; pass_salt: string; active: boolean; role: string } | undefined
+> {
+  return queryOne("SELECT id, pass_hash, pass_salt, active, role FROM users WHERE email = $1", [email]);
 }

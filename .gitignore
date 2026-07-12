@@ -23,3 +23,5 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 tsconfig.tsbuildinfo
+
+.env.local
