@@ -5,15 +5,15 @@ import { audit, ensureSeed, ingestFile, query, queryOne } from "@/lib/db";
 export const runtime = "nodejs";
 
 async function listFiles() {
-  const files = await query<{ id: string; name: string; subject: string }>(
-    "SELECT id, name, subject FROM syllabus_files ORDER BY created_at ASC"
+  const files = await query<{ id: string; name: string; subject: string; short_name: string }>(
+    "SELECT id, name, subject, COALESCE(short_name, subject) AS short_name FROM syllabus_files ORDER BY created_at ASC"
   );
   const result = [];
   for (const f of files) {
     const row = await queryOne<{ n: string }>(
       "SELECT COUNT(*) AS n FROM syllabus_chunks WHERE file_id = $1", [f.id]
     );
-    result.push({ id: f.id, name: f.name, subject: f.subject, count: Number(row?.n ?? 0) });
+    result.push({ id: f.id, name: f.name, subject: f.subject, short_name: f.short_name, count: Number(row?.n ?? 0) });
   }
   return result;
 }

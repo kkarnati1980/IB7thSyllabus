@@ -35,9 +35,20 @@ async function listUsers(): Promise<PublicUser[]> {
   }));
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Subject picker source: the real per-file subjects (short_name), not MYP group names.
+  if (new URL(req.url).searchParams.get("type") === "subjects") {
+    const subjects = await query<{ short_name: string; subject: string }>(
+      `SELECT DISTINCT COALESCE(short_name, subject) AS short_name, subject
+         FROM syllabus_files
+        WHERE COALESCE(short_name, subject) NOT IN ('IB Framework', 'Knowledge Index')
+        ORDER BY short_name ASC`
+    );
+    return NextResponse.json({ subjects });
+  }
 
   const users = await query<{
     id: string;

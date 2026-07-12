@@ -22,7 +22,7 @@ export type Subject = {
   topics: Topic[];
 };
 
-export type SyllabusFile = { id: string; name: string; subject: string; count: number };
+export type SyllabusFile = { id: string; name: string; subject: string; short_name?: string; count: number };
 
 export type ProgressEntry = {
   topicId: string;

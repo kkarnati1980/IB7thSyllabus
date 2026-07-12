@@ -8,17 +8,6 @@ const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 type TabKey = "users" | "audit" | "config" | "images";
 type AuditRow = { action: string; detail: string; at: string };
 
-const MYP_SUBJECTS = [
-  "Language and Literature",
-  "Language Acquisition",
-  "Individuals and Societies",
-  "Sciences",
-  "Mathematics",
-  "Arts",
-  "Physical and Health Education",
-  "Design",
-];
-
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "student", label: "Student" },
   { value: "grade_teacher", label: "Grade teacher" },
@@ -48,6 +37,14 @@ export default function AdminPortal({
   const [newGuardianStudent, setNewGuardianStudent] = useState("");
   const [newSubjects, setNewSubjects] = useState<string[]>([]);
   const [newError, setNewError] = useState("");
+  const [availableSubjects, setAvailableSubjects] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/admin/school?type=subjects")
+      .then((r) => (r.ok ? r.json() : { subjects: [] }))
+      .then((j) => setAvailableSubjects((j.subjects ?? []).map((s: { short_name: string }) => s.short_name)))
+      .catch(() => {});
+  }, []);
 
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -242,7 +239,10 @@ export default function AdminPortal({
               <>
                 <label style={smallLabel}>Subjects taught</label>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                  {MYP_SUBJECTS.map((s) => {
+                  {availableSubjects.length === 0 && (
+                    <span style={{ fontSize: 12, color: "#8A8172" }}>Loading subjects…</span>
+                  )}
+                  {availableSubjects.map((s) => {
                     const on = newSubjects.includes(s);
                     return (
                       <button key={s} type="button"
