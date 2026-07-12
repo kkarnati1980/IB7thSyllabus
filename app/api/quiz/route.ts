@@ -16,11 +16,8 @@ export async function POST(req: NextRequest) {
     subject?: string;
     topic?: string;
   };
-  const ragCtx = topic
-    ? retrieve(`${topic} quiz`)
-        .map((c) => c.text)
-        .join("\n")
-    : "";
+  const chunks = topic ? await retrieve(`${topic} quiz`) : [];
+  const ragCtx = chunks.map((c) => c.text).join("\n");
 
   try {
     const client = getClient();

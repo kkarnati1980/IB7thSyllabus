@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { audit, db, hashPassword, nowIso, uid } from "@/lib/db";
+import { audit, execute, hashPassword, nowIso, query, queryOne, uid } from "@/lib/db";
 import type { PublicUser } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-function listUsers(): PublicUser[] {
-  const rows = db
-    .prepare("SELECT id, name, email, role, active, created_at FROM users ORDER BY created_at ASC")
-    .all() as {
+async function listUsers(): Promise<PublicUser[]> {
+  const rows = await query<{
     id: string;
     name: string;
     email: string;
     role: "student" | "admin";
-    active: number;
+    active: boolean;
     created_at: string;
-  }[];
+  }>("SELECT id, name, email, role, active, created_at FROM users ORDER BY created_at ASC");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -35,7 +33,7 @@ async function requireAdmin() {
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  return NextResponse.json({ users: listUsers() });
+  return NextResponse.json({ users: await listUsers() });
 }
 
 export async function POST(req: NextRequest) {
@@ -51,16 +49,18 @@ export async function POST(req: NextRequest) {
   if (!name || !email || !password) {
     return NextResponse.json({ error: "All fields required." }, { status: 400 });
   }
-  if (db.prepare("SELECT id FROM users WHERE email = ?").get(email.trim())) {
+  const existing = await queryOne("SELECT id FROM users WHERE email = $1", [email.trim()]);
+  if (existing) {
     return NextResponse.json({ error: "Email already exists." }, { status: 409 });
   }
 
   const id = uid("usr");
   const { hash, salt } = hashPassword(password);
-  db.prepare(
-    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)"
-  ).run(id, name.trim(), email.trim(), role === "admin" ? "admin" : "student", hash, salt, nowIso());
-  audit("ADMIN_CREATE", `Created user: ${email} (${role || "student"})`, admin.id);
+  await execute(
+    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES ($1, $2, $3, $4, $5, $6, true, $7)",
+    [id, name.trim(), email.trim(), role === "admin" ? "admin" : "student", hash, salt, nowIso()]
+  );
+  await audit("ADMIN_CREATE", `Created user: ${email} (${role || "student"})`, admin.id);
 
-  return NextResponse.json({ users: listUsers() });
+  return NextResponse.json({ users: await listUsers() });
 }

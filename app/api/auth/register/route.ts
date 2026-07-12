@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { audit, db, ensureSeed, hashPassword, nowIso, uid } from "@/lib/db";
+import { audit, ensureSeed, execute, hashPassword, nowIso, queryOne, uid } from "@/lib/db";
 import { createSession, setSessionCookie } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  ensureSeed();
+  await ensureSeed();
   const { name, email, password } = (await req.json().catch(() => ({}))) as {
     name?: string;
     email?: string;
@@ -19,20 +19,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Password must be 8+ characters." }, { status: 400 });
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email.trim());
+  const existing = await queryOne("SELECT id FROM users WHERE email = $1", [email.trim()]);
   if (existing) {
     return NextResponse.json({ error: "Email already registered." }, { status: 409 });
   }
 
   const id = uid("usr");
   const { hash, salt } = hashPassword(password);
-  db.prepare(
-    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES (?, ?, ?, 'student', ?, ?, 1, ?)"
-  ).run(id, name.trim(), email.trim(), hash, salt, nowIso());
+  await execute(
+    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES ($1, $2, $3, 'student', $4, $5, true, $6)",
+    [id, name.trim(), email.trim(), hash, salt, nowIso()]
+  );
 
-  const token = createSession(id);
+  const token = await createSession(id);
   await setSessionCookie(token);
-  audit("REGISTER", `New student registered: ${email}`, id);
+  await audit("REGISTER", `New student registered: ${email}`, id);
 
   return NextResponse.json({ user: { id, name: name.trim(), email: email.trim(), role: "student" } });
 }

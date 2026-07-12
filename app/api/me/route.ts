@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { db, ensureSeed, getSubjects } from "@/lib/db";
+import { ensureSeed, getSubjects, queryOne } from "@/lib/db";
 import { getProgress } from "@/lib/progress";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  ensureSeed();
+  await ensureSeed();
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ user: null }, { status: 401 });
 
-  const subjects = getSubjects();
-  const progress = getProgress(user.id);
-  const chunkCount = (
-    db.prepare("SELECT COUNT(*) AS n FROM syllabus_chunks").get() as { n: number }
-  ).n;
+  const subjects = await getSubjects();
+  const progress = await getProgress(user.id);
+  const row = await queryOne<{ n: string }>("SELECT COUNT(*) AS n FROM syllabus_chunks");
+  const chunkCount = Number(row?.n ?? 0);
 
   return NextResponse.json({
     user: { id: user.id, name: user.name, email: user.email, role: user.role },

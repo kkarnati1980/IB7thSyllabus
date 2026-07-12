@@ -1,31 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { audit, db, ensureSeed, ingestFile } from "@/lib/db";
+import { audit, ensureSeed, ingestFile, query, queryOne } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-function listFiles() {
-  const files = db
-    .prepare("SELECT id, name, subject FROM syllabus_files ORDER BY created_at ASC")
-    .all() as { id: string; name: string; subject: string }[];
-  return files.map((f) => {
-    const count = (
-      db.prepare("SELECT COUNT(*) AS n FROM syllabus_chunks WHERE file_id = ?").get(f.id) as {
-        n: number;
-      }
-    ).n;
-    return { id: f.id, name: f.name, subject: f.subject, count };
-  });
+async function listFiles() {
+  const files = await query<{ id: string; name: string; subject: string }>(
+    "SELECT id, name, subject FROM syllabus_files ORDER BY created_at ASC"
+  );
+  const result = [];
+  for (const f of files) {
+    const row = await queryOne<{ n: string }>(
+      "SELECT COUNT(*) AS n FROM syllabus_chunks WHERE file_id = $1", [f.id]
+    );
+    result.push({ id: f.id, name: f.name, subject: f.subject, count: Number(row?.n ?? 0) });
+  }
+  return result;
 }
 
 export async function GET() {
-  ensureSeed();
+  await ensureSeed();
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const chunkCount = (
-    db.prepare("SELECT COUNT(*) AS n FROM syllabus_chunks").get() as { n: number }
-  ).n;
-  return NextResponse.json({ files: listFiles(), chunkCount });
+  const row = await queryOne<{ n: string }>("SELECT COUNT(*) AS n FROM syllabus_chunks");
+  const chunkCount = Number(row?.n ?? 0);
+  return NextResponse.json({ files: await listFiles(), chunkCount });
 }
 
 export async function POST(req: NextRequest) {
@@ -41,12 +40,11 @@ export async function POST(req: NextRequest) {
 
   for (const f of body.files) {
     if (!/\.(md|markdown|txt)$/i.test(f.name)) continue;
-    ingestFile(f.name, f.text);
+    await ingestFile(f.name, f.text);
   }
-  audit("SYLLABUS_UPLOAD", `${body.files.length} file(s) indexed by ${user.email}`, user.id);
+  await audit("SYLLABUS_UPLOAD", `${body.files.length} file(s) indexed by ${user.email}`, user.id);
 
-  const chunkCount = (
-    db.prepare("SELECT COUNT(*) AS n FROM syllabus_chunks").get() as { n: number }
-  ).n;
-  return NextResponse.json({ files: listFiles(), chunkCount });
+  const row = await queryOne<{ n: string }>("SELECT COUNT(*) AS n FROM syllabus_chunks");
+  const chunkCount = Number(row?.n ?? 0);
+  return NextResponse.json({ files: await listFiles(), chunkCount });
 }

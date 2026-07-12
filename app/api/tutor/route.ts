@@ -77,8 +77,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    kick?: string; // system-kick text (opening prompt); not appended to history
-    userText?: string; // a user turn
+    kick?: string;
+    userText?: string;
     history?: { role: "user" | "jarvis"; text: string }[];
     scaffold?: Scaffold;
     topic?: { id: string; name: string };
@@ -89,11 +89,11 @@ export async function POST(req: NextRequest) {
   const subjectName = body.subject?.name || "";
   const history = body.history || [];
 
-  const query =
-    (topicName ? topicName + " " : "") + (body.userText || body.kick || "");
-  const ctx = retrieve(query)
-    .map((c) => `[${c.file} › ${c.heading}] ${c.text}`)
-    .join("\n\n");
+  const query = (topicName ? topicName + " " : "") + (body.userText || body.kick || "");
+  const chunks = await retrieve(query);
+  const ctx = chunks.map((c) => `[${c.file} › ${c.heading}] ${c.text}`).join("\n\n");
+
+  const summary = await trackerSummary(user.id);
 
   const convo: { role: "user" | "assistant"; content: string }[] = history.map((m) => ({
     role: m.role === "user" ? ("user" as const) : ("assistant" as const),
@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1600,
-      system: tutorSystemPrompt(topicName, subjectName, ctx, trackerSummary(user.id)),
+      system: tutorSystemPrompt(topicName, subjectName, ctx, summary),
       messages: convo,
     });
     raw = messageText(message);
@@ -121,15 +121,13 @@ export async function POST(req: NextRequest) {
   }
 
   const data = parseJson<RawTutor>(raw) || { say: raw };
-  const say =
-    data.say || raw || "Let's keep going — tell me more about what you're thinking.";
+  const say = data.say || raw || "Let's keep going — tell me more about what you're thinking.";
   const scaffold = mergeScaffold(body.scaffold || {}, data);
   const stage = typeof data.stage === "number" ? data.stage : undefined;
   const masteryDelta = data.mastery_delta || 0;
 
-  // Persist tracker updates server-side.
   if (body.topic) {
-    updateProgress(user.id, {
+    await updateProgress(user.id, {
       topicId: body.topic.id,
       topicName: body.topic.name,
       subject: subjectName,
