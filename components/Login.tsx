@@ -37,6 +37,15 @@ export default function Login({ admin }: { admin: boolean }) {
       setLoginError(j.error || "Invalid username or password.");
       return;
     }
+    const j = (await res.json().catch(() => ({}))) as { user?: { role?: string } };
+    const dest: Record<string, string> = {
+      admin: "/admin",
+      grade_teacher: "/grade-teacher",
+      subject_teacher: "/subject-teacher",
+      guardian: "/guardian",
+      student: "/",
+    };
+    router.push(dest[j.user?.role ?? "student"] ?? "/");
     router.refresh();
   }
 

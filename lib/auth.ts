@@ -9,9 +9,14 @@ export type User = {
   id: string;
   name: string;
   email: string;
-  role: "student" | "admin";
+  role: "student" | "admin" | "grade_teacher" | "subject_teacher" | "guardian";
   active: boolean;
   created_at: string;
+  school_id?: string | null;
+  grade_level_id?: string | null;
+  linked_to_school?: boolean;
+  guardian_id?: string | null;
+  display_name?: string | null;
 };
 
 export async function createSession(userId: string): Promise<string> {
@@ -34,7 +39,9 @@ export async function getCurrentUser(): Promise<User | null> {
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const row = await queryOne<User & { expires_at: string }>(
-    `SELECT u.id, u.name, u.email, u.role, u.active, u.created_at, s.expires_at
+    `SELECT u.id, u.name, u.email, u.role, u.active, u.created_at,
+            u.school_id, u.grade_level_id, u.linked_to_school, u.guardian_id, u.display_name,
+            s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1`,
     [token]
   );

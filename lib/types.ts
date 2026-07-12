@@ -1,6 +1,6 @@
 // Shared types between the API routes and the client UI.
 
-export type Role = "student" | "admin";
+export type Role = "student" | "admin" | "grade_teacher" | "subject_teacher" | "guardian";
 
 export type PublicUser = {
   id: string;
@@ -9,6 +9,7 @@ export type PublicUser = {
   role: Role;
   active: boolean;
   createdAt: string;
+  linkedToSchool: boolean;
 };
 
 export type Topic = { id: string; name: string };

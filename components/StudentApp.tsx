@@ -39,18 +39,24 @@ function ring(pct: number, r: number) {
 
 type TopicImage = { id: string; image_url: string; thumbnail_url: string; alt_text: string; source: string };
 
+type FlagItem = { id: string; topic_id: string; topic_name: string; subject_name: string; reason: string; created_at: string };
+type NotifItem = { id: string; type: string; content: string; from_name: string | null; read: boolean; created_at: string };
+type TeacherContentItem = { id: string; title: string; content_type: string; content: string; added_by?: string };
+
 export default function StudentApp({
   user,
   initialSubjects,
   initialProgress,
   initialChunkCount,
 }: {
-  user: { id: string; name: string; email: string; role: string };
+  user: { id: string; name: string; email: string; role: string; linkedToSchool: boolean };
   initialSubjects: Subject[];
   initialProgress: ProgressEntry[];
   initialChunkCount: number;
 }) {
   const router = useRouter();
+  // School-side UI is opt-in: everything gated on `linked` stays invisible for standalone students.
+  const linked = user.linkedToSchool;
 
   // Filter hidden subjects
   const visibleSubjects = useMemo(
@@ -69,6 +75,14 @@ export default function StudentApp({
 
   const [screen, setScreen] = useState<Screen>("home");
   const [muted, setMuted] = useState(false);
+
+  // Notifications (bell)
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notif, setNotif] = useState<{ flags: FlagItem[]; messages: NotifItem[]; unreadCount: number }>({
+    flags: [],
+    messages: [],
+    unreadCount: 0,
+  });
   const [dragOver, setDragOver] = useState(false);
   const [driveLink, setDriveLink] = useState("");
 
@@ -111,6 +125,9 @@ export default function StudentApp({
 
   // Topic images
   const [topicImages, setTopicImages] = useState<TopicImage[]>([]);
+
+  // Teacher-published content for the open topic (school-linked only)
+  const [teacherContent, setTeacherContent] = useState<TeacherContentItem[]>([]);
 
   const chatRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -367,8 +384,23 @@ export default function StudentApp({
     setVideos([]);
     setMindMap(null);
     setTopicImages([]);
+    setTeacherContent([]);
     setScreen("lesson");
     setSessionLoading(true);
+
+    // If a teacher has flagged this topic, steer Jarvis's opening at it (school-linked only).
+    const flag = linked ? notif.flags.find((f) => f.topic_id === topic.id) : undefined;
+    const flagPrefix = flag
+      ? `Your teacher has flagged this topic for revision: ${flag.reason}. Let's focus on that today. `
+      : "";
+    const kick = () => {
+      const existing = tracker[topic.id];
+      const verb = existing && existing.mastery >= 75 ? "Revise" : existing ? "Continue" : "Start";
+      setTimeout(() => sendRef.current(
+        `${flagPrefix}${verb} a lesson on "${topic.name}" (${subject.name}). I'm a Grade 7 IB MYP student. Begin by discovering my goal and building the big-picture concept map.`,
+        true
+      ), 30);
+    };
 
     // Load saved session
     fetch(`/api/session?topicId=${encodeURIComponent(topic.id)}`)
@@ -388,29 +420,26 @@ export default function StudentApp({
           setMindMap(s.mindmap || null);
           // If restoring — don't kick
         } else {
-          // New session — kick off
-          const existing = tracker[topic.id];
-          const verb = existing && existing.mastery >= 75 ? "Revise" : existing ? "Continue" : "Start";
-          setTimeout(() => sendRef.current(
-            `${verb} a lesson on "${topic.name}" (${subject.name}). I'm a Grade 7 IB MYP student. Begin by discovering my goal and building the big-picture concept map.`,
-            true
-          ), 30);
+          kick(); // New session — kick off
         }
       })
       .catch(() => {
         setSessionLoading(false);
-        const existing = tracker[topic.id];
-        const verb = existing && existing.mastery >= 75 ? "Revise" : existing ? "Continue" : "Start";
-        setTimeout(() => sendRef.current(
-          `${verb} a lesson on "${topic.name}" (${subject.name}). I'm a Grade 7 IB MYP student. Begin by discovering my goal and building the big-picture concept map.`,
-          true
-        ), 30);
+        kick();
       });
 
     // Load topic images
     fetch(`/api/images?topicName=${encodeURIComponent(topic.name)}&subjectName=${encodeURIComponent(subject.name)}`)
       .then((r) => r.json())
       .then((j) => setTopicImages(j.images || []));
+
+    // Load teacher-published content for this topic (school-linked only)
+    if (linked) {
+      fetch(`/api/teacher/content?topicName=${encodeURIComponent(topic.name)}&subjectName=${encodeURIComponent(subject.name)}&visible=true`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (j?.content) setTeacherContent(j.content); })
+        .catch(() => {});
+    }
   }
 
   async function resetSession() {
@@ -513,6 +542,35 @@ export default function StudentApp({
     router.refresh();
   }
 
+  // ---------------------------------------------------------------- notifications
+  useEffect(() => {
+    if (!linked) return; // standalone students never poll or see notifications
+    let alive = true;
+    const loadNotif = () =>
+      fetch("/api/notifications")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (alive && j) setNotif({ flags: j.flags || [], messages: j.messages || [], unreadCount: j.unreadCount || 0 });
+        })
+        .catch(() => {});
+    loadNotif();
+    const t = setInterval(loadNotif, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [linked]);
+
+  async function markNotifRead(id: string) {
+    setNotif((n) => ({
+      ...n,
+      messages: n.messages.map((m) => (m.id === id ? { ...m, read: true } : m)),
+      unreadCount: Math.max(0, n.unreadCount - 1),
+    }));
+    fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notificationId: id }),
+    }).catch(() => {});
+  }
+
   // ---------------------------------------------------------------- derived
   const dueList = useMemo(() => {
     const now = Date.now();
@@ -528,6 +586,12 @@ export default function StudentApp({
     for (const s of subjects) { const t = s.topics.find((x) => x.id === id); if (t) return () => openTopic(s, t); }
     return () => {};
   };
+
+  // Topic ids with an unresolved teacher flag (empty for standalone students).
+  const flaggedIds = useMemo(
+    () => new Set(linked ? notif.flags.map((f) => f.topic_id) : []),
+    [linked, notif.flags]
+  );
 
   // All in-progress topics sorted by lastSeen
   const inProgressTopics = useMemo(() => {
@@ -594,12 +658,60 @@ export default function StudentApp({
         </div>
       )}
 
+      {/* NOTIFICATIONS PANEL */}
+      {linked && notifOpen && (
+        <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: 0, right: 0, width: 380, maxWidth: "90vw", height: "100vh", background: "#EFEAE0", boxShadow: "-8px 0 24px rgba(0,0,0,.18)", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "18px 20px", borderBottom: "1px solid #E2DBCE", background: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 18, flex: 1 }}>Notifications</div>
+              <button onClick={() => setNotifOpen(false)} style={{ background: "#F1ECE2", border: "none", width: 32, height: 32, borderRadius: 10, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+              {notif.flags.length === 0 && notif.messages.length === 0 && (
+                <div style={{ textAlign: "center", color: "#8A8172", fontSize: 14, padding: 40 }}>You&apos;re all caught up.</div>
+              )}
+
+              {notif.flags.map((f) => (
+                <div key={f.id} style={{ background: "#fff", border: "1px solid #F0C9C4", borderLeft: "4px solid #C0392B", borderRadius: 12, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#C0392B", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>⚑ Flagged topic</div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#23201B" }}>{f.topic_name}</div>
+                  <div style={{ fontSize: 12, color: "#8A8172", marginBottom: 6 }}>{f.subject_name}</div>
+                  <div style={{ fontSize: 13, color: "#3A362E", lineHeight: 1.4, marginBottom: 10 }}>{f.reason}</div>
+                  <button onClick={() => { setNotifOpen(false); findGo(f.topic_id)(); }} style={{ background: "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Go to topic →</button>
+                </div>
+              ))}
+
+              {notif.messages.map((m) => (
+                <div key={m.id} onClick={() => !m.read && markNotifRead(m.id)} style={{ background: "#fff", border: "1px solid #E7E1D6", borderLeft: `4px solid ${m.read ? "#E7E1D6" : "#4C43D9"}`, borderRadius: 12, padding: "12px 14px", cursor: m.read ? "default" : "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: "#4C43D9", textTransform: "uppercase", letterSpacing: ".05em" }}>{m.type === "flag" ? "⚑ Flag" : m.type === "note" ? "📝 Note" : "💬 Message"}</span>
+                    {m.from_name && <span style={{ fontSize: 12, color: "#8A8172" }}>from {m.from_name}</span>}
+                    {!m.read && <span style={{ marginLeft: "auto", width: 8, height: 8, borderRadius: 4, background: "#4C43D9" }} />}
+                  </div>
+                  <div style={{ fontSize: 14, color: "#3A362E", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* LEFT RAIL */}
       <div style={{ width: 88, flex: "0 0 88px", background: "#23201B", display: "flex", flexDirection: "column", alignItems: "center", padding: "22px 0", gap: 8, position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ width: 46, height: 46, borderRadius: 14, background: "linear-gradient(150deg,#6B62F5,#4C43D9)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: DISPLAY, fontWeight: 800, color: "#fff", fontSize: 22, boxShadow: "0 6px 18px rgba(76,67,217,.5)", marginBottom: 14 }}>J</div>
         <button onClick={() => setScreen("home")} title="Home" style={navBtn("home")}>⌂</button>
         <button onClick={() => setScreen("library")} title="Syllabus Library" style={navBtn("library")}>▤</button>
         <button onClick={() => setScreen("tracker")} title="Progress Tracker" style={navBtn("tracker")}>◔</button>
+        {linked && (
+          <button onClick={() => setNotifOpen(true)} title="Notifications" style={{ ...navBtn("home"), background: notifOpen ? "#4C43D9" : "transparent", position: "relative" }}>
+            🔔
+            {(notif.unreadCount + notif.flags.length) > 0 && (
+              <span style={{ position: "absolute", top: 4, right: 4, minWidth: 18, height: 18, borderRadius: 9, background: "#C0392B", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
+                {notif.unreadCount + notif.flags.length}
+              </span>
+            )}
+          </button>
+        )}
         <div style={{ flex: 1 }} />
         {elConfigured && (
           <button onClick={() => setShowVoicePicker(true)} title="Choose voice" style={{ width: 52, height: 52, borderRadius: 16, border: "none", cursor: "pointer", fontSize: 20, background: voiceId ? "#4C43D9" : "#3A362E", color: "#fff" }}>🎙</button>
@@ -617,6 +729,7 @@ export default function StudentApp({
             name={user.name} subjects={subjects} tracker={tracker} dueList={dueList}
             fmt={fmt} findGo={findGo} inProgressTopics={inProgressTopics}
             openTopic={openTopic} goLibrary={() => setScreen("library")}
+            flaggedIds={flaggedIds}
           />
         )}
 
@@ -703,7 +816,7 @@ export default function StudentApp({
                 <button onClick={() => setLessonTab("mindmap")} style={tabSty(lessonTab === "mindmap")}>🕸 Mind Map</button>
               </div>
 
-              {lessonTab === "canvas" && <CanvasTab scaffold={scaffold} stageIndex={stageIndex} stageDefs={stageDefs} layerBg={layerBg} layerFg={layerFg} canvasEmpty={canvasEmpty} topicImages={topicImages} />}
+              {lessonTab === "canvas" && <CanvasTab scaffold={scaffold} stageIndex={stageIndex} stageDefs={stageDefs} layerBg={layerBg} layerFg={layerFg} canvasEmpty={canvasEmpty} topicImages={topicImages} teacherContent={teacherContent} />}
               {lessonTab === "quiz" && <QuizTab quizData={quizData} quizState={quizState} quizLoading={quizLoading} generateQuiz={generateQuiz} answerQuiz={answerQuiz} topicImages={topicImages} />}
               {lessonTab === "flashcards" && <FlashcardsTab flashcards={flashcards} fcIndex={fcIndex} fcFlipped={fcFlipped} fcLoading={fcLoading} generate={generateFlashcards} flip={() => setFcFlipped((f) => !f)} next={() => { setFcIndex((i) => (i + 1) % flashcards.length); setFcFlipped(false); }} prev={() => { setFcIndex((i) => (i - 1 + flashcards.length) % flashcards.length); setFcFlipped(false); }} topicImages={topicImages} />}
               {lessonTab === "videos" && <VideosTab videos={videos} loading={videosLoading} generate={generateVideos} topicImages={topicImages} />}
@@ -740,7 +853,7 @@ function UsefulResources({ images }: { images: TopicImage[] }) {
 
 /* ===== HOME ===== */
 function HomeScreen({
-  name, subjects, tracker, dueList, fmt, findGo, inProgressTopics, openTopic, goLibrary,
+  name, subjects, tracker, dueList, fmt, findGo, inProgressTopics, openTopic, goLibrary, flaggedIds,
 }: {
   name: string; subjects: Subject[]; tracker: Tracker;
   dueList: { id: string; name: string; due: number; overdue: boolean }[];
@@ -748,6 +861,7 @@ function HomeScreen({
   inProgressTopics: ProgressEntry[];
   openTopic: (s: Subject, t: { id: string; name: string }) => void;
   goLibrary: () => void;
+  flaggedIds: Set<string>;
 }) {
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({});
   const dueTopics = dueList.slice(0, 3).map((d) => ({ name: d.name, when: d.overdue ? "due now" : fmt(d.due), id: d.id }));
@@ -861,6 +975,7 @@ function HomeScreen({
                         style={{ display: "flex", alignItems: "center", gap: 10, background: "#FAF8F3", border: "1px solid #EEE9DF", borderRadius: 12, padding: "11px 14px", cursor: "pointer", textAlign: "left" }}>
                         <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flex: "0 0 8px" }} />
                         <span style={{ fontWeight: 600, fontSize: 14, flex: 1, color: "#23201B", lineHeight: 1.3 }}>{t.name}</span>
+                        {flaggedIds.has(t.id) && <span style={{ fontSize: 11, background: "#FDECEA", color: "#C0392B", borderRadius: 20, padding: "3px 8px", fontWeight: 800, whiteSpace: "nowrap" }}>⚑ Flagged</span>}
                         <span style={{ fontSize: 11, background: badgeBg, color: badgeColor, borderRadius: 20, padding: "3px 8px", fontWeight: 700, whiteSpace: "nowrap" }}>{badge}</span>
                       </button>
                     );
@@ -970,9 +1085,10 @@ function TrackerScreen({ tracker, allTopics, misconLog, schedule, dueList }: {
 }
 
 /* ===== CANVAS TAB ===== */
-function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEmpty, topicImages }: {
+function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEmpty, topicImages, teacherContent }: {
   scaffold: Scaffold; stageIndex: number; stageDefs: [string, string][];
   layerBg: string[]; layerFg: string[]; canvasEmpty: boolean; topicImages: TopicImage[];
+  teacherContent: TeacherContentItem[];
 }) {
   const cm = scaffold.cm;
   const ib = scaffold.ib;
@@ -1081,7 +1197,50 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
         </div>
       )}
 
+      <TeacherContent items={teacherContent} />
       <UsefulResources images={topicImages} />
+    </div>
+  );
+}
+
+/* ===== FROM YOUR TEACHER ===== */
+function TeacherContent({ items }: { items: TeacherContentItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div style={{ marginTop: 28, borderTop: "1px solid #E7E1D6", paddingTop: 20 }}>
+      <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, color: "#4C43D9", marginBottom: 14, textTransform: "uppercase", letterSpacing: ".06em" }}>🎓 From your teacher</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {items.map((c) => {
+          if (c.content_type === "image") {
+            return (
+              <div key={c.id} style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #E7E1D6", background: "#fff" }}>
+                <img src={c.content} alt={c.title} style={{ width: "100%", maxHeight: 340, objectFit: "cover", display: "block" }} />
+                <div style={{ padding: "10px 14px", fontSize: 14, fontWeight: 600, color: "#23201B" }}>{c.title}</div>
+              </div>
+            );
+          }
+          if (c.content_type === "video") {
+            return (
+              <a key={c.id} href={c.content} target="_blank" rel="noreferrer" style={{ display: "block", background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: "18px 20px", textDecoration: "none" }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 14, background: "#FDECEA", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flex: "0 0 48px" }}>▶</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#23201B", lineHeight: 1.3 }}>{c.title}</div>
+                    <div style={{ fontSize: 13, color: "#4A453C", marginTop: 6, lineHeight: 1.45, wordBreak: "break-all" }}>{c.content}</div>
+                  </div>
+                  <div style={{ color: "#C0392B", fontSize: 18, flex: "0 0 18px" }}>↗</div>
+                </div>
+              </a>
+            );
+          }
+          return (
+            <div key={c.id} style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: "18px 20px" }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#23201B", marginBottom: 6 }}>{c.title}</div>
+              <div style={{ fontSize: 14, color: "#4A453C", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{c.content}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

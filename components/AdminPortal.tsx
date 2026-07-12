@@ -8,6 +8,25 @@ const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 type TabKey = "users" | "audit" | "config" | "images";
 type AuditRow = { action: string; detail: string; at: string };
 
+const MYP_SUBJECTS = [
+  "Language and Literature",
+  "Language Acquisition",
+  "Individuals and Societies",
+  "Sciences",
+  "Mathematics",
+  "Arts",
+  "Physical and Health Education",
+  "Design",
+];
+
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "student", label: "Student" },
+  { value: "grade_teacher", label: "Grade teacher" },
+  { value: "subject_teacher", label: "Subject teacher" },
+  { value: "guardian", label: "Guardian" },
+  { value: "admin", label: "Admin" },
+];
+
 export default function AdminPortal({
   admin,
   initialUsers,
@@ -26,6 +45,8 @@ export default function AdminPortal({
   const [newEmail, setNewEmail] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newRole, setNewRole] = useState("student");
+  const [newGuardianStudent, setNewGuardianStudent] = useState("");
+  const [newSubjects, setNewSubjects] = useState<string[]>([]);
   const [newError, setNewError] = useState("");
 
   const [editId, setEditId] = useState<string | null>(null);
@@ -47,6 +68,7 @@ export default function AdminPortal({
 
   async function createUser() {
     if (!newName || !newEmail || !newPass) { setNewError("All fields required."); return; }
+    if (newRole === "guardian" && !newGuardianStudent) { setNewError("Pick the student this guardian belongs to."); return; }
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,8 +76,37 @@ export default function AdminPortal({
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) { setNewError(j.error || "Could not create user."); return; }
-    setUsers(j.users); setNewName(""); setNewEmail(""); setNewPass(""); setNewError("");
+
+    // Relational wiring for the new roles goes through the school API.
+    let latest = j.users;
+    const createdId: string | undefined = j.createdId;
+    if (createdId && newRole === "guardian") {
+      const r = await fetch("/api/admin/school", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "linkGuardian", guardianId: createdId, studentId: newGuardianStudent }),
+      });
+      if (r.ok) latest = (await r.json()).users;
+    }
+    if (createdId && newRole === "subject_teacher" && newSubjects.length) {
+      const r = await fetch("/api/admin/school", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "assignSubjects", teacherId: createdId, subjects: newSubjects }),
+      });
+      if (r.ok) latest = (await r.json()).users;
+    }
+
+    setUsers(latest);
+    setNewName(""); setNewEmail(""); setNewPass(""); setNewRole("student");
+    setNewGuardianStudent(""); setNewSubjects([]); setNewError("");
     refreshAudit();
+  }
+
+  async function toggleSchool(u: PublicUser) {
+    const res = await fetch("/api/admin/school", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: u.linkedToSchool ? "unlink" : "link", studentId: u.id }),
+    });
+    if (res.ok) { setUsers((await res.json()).users); refreshAudit(); }
   }
 
   async function toggleUser(id: string) {
@@ -134,6 +185,11 @@ export default function AdminPortal({
                   </div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: u.active ? "#2E9E6B" : "#C0392B", minWidth: 48 }}>{u.active ? "Active" : "Disabled"}</div>
                   <div style={{ fontSize: 12, color: "#A79E8E", minWidth: 80 }}>{u.createdAt.slice(0, 10)}</div>
+                  {u.role === "student" ? (
+                    <button onClick={() => toggleSchool(u)} title={u.linkedToSchool ? "Unlink from school" : "Link to school"} style={{ background: u.linkedToSchool ? "#E4F3EC" : "#F6F3EC", border: "1px solid #E7E1D6", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: u.linkedToSchool ? "#1E7A50" : "#8A8172", minWidth: 96 }}>{u.linkedToSchool ? "🏫 Linked" : "Link school"}</button>
+                  ) : (
+                    <div style={{ minWidth: 96 }} />
+                  )}
                   <button onClick={() => toggleUser(u.id)} style={{ background: "#F6F3EC", border: "1px solid #E7E1D6", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: u.active ? "#E8823A" : "#2E9E6B" }}>{u.active ? "Disable" : "Enable"}</button>
                   <button onClick={() => startEdit(u)} style={{ background: "#ECEBFB", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#4C43D9" }}>Edit</button>
                   <button onClick={() => deleteUser(u.id)} style={{ background: "#FDECEA", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#C0392B" }}>Delete</button>
@@ -142,7 +198,7 @@ export default function AdminPortal({
                   <div style={{ background: "#F6F3EC", borderTop: "1px solid #EEE9DF", padding: "18px 20px 20px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, alignItems: "end" }}>
                     <EditField label="Name"><input value={editName} onChange={(e) => setEditName(e.target.value)} style={editInput} /></EditField>
                     <EditField label="Email / username"><input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} style={editInput} /></EditField>
-                    <EditField label="Role"><select value={editRole} onChange={(e) => setEditRole(e.target.value)} style={editInput}><option value="student">Student</option><option value="admin">Admin</option></select></EditField>
+                    <EditField label="Role"><select value={editRole} onChange={(e) => setEditRole(e.target.value)} style={editInput}>{ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select></EditField>
                     <EditField label="New password (leave blank to keep)"><input value={editPass} onChange={(e) => setEditPass(e.target.value)} type="password" placeholder="••••••••" style={editInput} /></EditField>
                     <div style={{ gridColumn: "2 / 4" }}>
                       {editError && <div style={{ background: "#FDECEA", color: "#C0392B", fontSize: 12, fontWeight: 600, padding: "7px 10px", borderRadius: 8, marginBottom: 8 }}>{editError}</div>}
@@ -167,9 +223,39 @@ export default function AdminPortal({
             <input value={newPass} onChange={(e) => setNewPass(e.target.value)} type="password" placeholder="••••••••" style={panelInput} />
             <label style={smallLabel}>Role</label>
             <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={{ ...panelInput, background: "#fff" }}>
-              <option value="student">Student</option>
-              <option value="admin">Admin</option>
+              {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
+
+            {newRole === "guardian" && (
+              <>
+                <label style={smallLabel}>Linked student</label>
+                <select value={newGuardianStudent} onChange={(e) => setNewGuardianStudent(e.target.value)} style={{ ...panelInput, background: "#fff" }}>
+                  <option value="">— Choose a student —</option>
+                  {users.filter((u) => u.role === "student").map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            {newRole === "subject_teacher" && (
+              <>
+                <label style={smallLabel}>Subjects taught</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                  {MYP_SUBJECTS.map((s) => {
+                    const on = newSubjects.includes(s);
+                    return (
+                      <button key={s} type="button"
+                        onClick={() => setNewSubjects((prev) => on ? prev.filter((x) => x !== s) : [...prev, s])}
+                        style={{ border: `1px solid ${on ? "#4C43D9" : "#E0D9CC"}`, background: on ? "#ECEBFB" : "#fff", color: on ? "#4C43D9" : "#5A5347", borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        {on ? "✓ " : ""}{s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
             <button onClick={createUser} style={{ width: "100%", background: "#4C43D9", color: "#fff", border: "none", borderRadius: 12, padding: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Create user</button>
           </div>
         </div>

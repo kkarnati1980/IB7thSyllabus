@@ -11,10 +11,11 @@ async function listUsers(): Promise<PublicUser[]> {
     id: string;
     name: string;
     email: string;
-    role: "student" | "admin";
+    role: PublicUser["role"];
     active: boolean;
     created_at: string;
-  }>("SELECT id, name, email, role, active, created_at FROM users ORDER BY created_at ASC");
+    linked_to_school: boolean;
+  }>("SELECT id, name, email, role, active, created_at, linked_to_school FROM users ORDER BY created_at ASC");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -22,6 +23,7 @@ async function listUsers(): Promise<PublicUser[]> {
     role: r.role,
     active: !!r.active,
     createdAt: r.created_at,
+    linkedToSchool: !!r.linked_to_school,
   }));
 }
 

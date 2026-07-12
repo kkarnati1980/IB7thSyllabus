@@ -10,10 +10,11 @@ async function listUsers(): Promise<PublicUser[]> {
     id: string;
     name: string;
     email: string;
-    role: "student" | "admin";
+    role: PublicUser["role"];
     active: boolean;
     created_at: string;
-  }>("SELECT id, name, email, role, active, created_at FROM users ORDER BY created_at ASC");
+    linked_to_school: boolean;
+  }>("SELECT id, name, email, role, active, created_at, linked_to_school FROM users ORDER BY created_at ASC");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -21,6 +22,7 @@ async function listUsers(): Promise<PublicUser[]> {
     role: r.role,
     active: !!r.active,
     createdAt: r.created_at,
+    linkedToSchool: !!r.linked_to_school,
   }));
 }
 
@@ -44,7 +46,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     action?: "toggle";
     name?: string;
     email?: string;
-    role?: "student" | "admin";
+    role?: PublicUser["role"];
     password?: string;
   };
 
@@ -64,7 +66,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (clash) {
     return NextResponse.json({ error: "Email already used by another account." }, { status: 409 });
   }
-  const role = body.role === "admin" ? "admin" : "student";
+  const roles: PublicUser["role"][] = ["student", "admin", "grade_teacher", "subject_teacher", "guardian"];
+  const role = body.role && roles.includes(body.role) ? body.role : "student";
 
   if (body.password && body.password.length > 0 && body.password.length < 8) {
     return NextResponse.json({ error: "New password must be 8+ characters." }, { status: 400 });

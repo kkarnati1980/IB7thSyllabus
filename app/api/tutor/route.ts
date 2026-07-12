@@ -4,6 +4,7 @@ import { retrieve } from "@/lib/db";
 import { getClient, MODEL, messageText } from "@/lib/anthropic";
 import { tutorSystemPrompt } from "@/lib/prompts";
 import { trackerSummary, updateProgress } from "@/lib/progress";
+import { masteryToCriterionScore, upsertJarvisAssessment } from "@/lib/myp";
 import type { Scaffold, TutorTurn } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest) {
   const masteryDelta = data?.mastery_delta || 0;
 
   if (body.topic) {
-    await updateProgress(user.id, {
+    const entry = await updateProgress(user.id, {
       topicId: body.topic.id,
       topicName: body.topic.name,
       subject: subjectName,
@@ -189,6 +190,19 @@ export async function POST(req: NextRequest) {
       masteryDelta,
       misconceptions: (data?.misconceptions || []).map((m) => m.think).filter(Boolean),
     });
+
+    // Keep criterion A live for school-linked students on a positive mastery gain.
+    // Never let grading break the tutor response.
+    if (user.linked_to_school && masteryDelta > 0 && entry.subject) {
+      try {
+        await upsertJarvisAssessment(
+          user.id, entry.subject, entry.topicId, entry.topicName, "A",
+          masteryToCriterionScore(entry.mastery)
+        );
+      } catch (e) {
+        console.error("jarvis grading (tutor) failed", e);
+      }
+    }
   }
 
   const turn: TutorTurn = { say, stage, scaffold, masteryDelta };

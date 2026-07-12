@@ -10,10 +10,11 @@ async function listUsers(): Promise<PublicUser[]> {
     id: string;
     name: string;
     email: string;
-    role: "student" | "admin";
+    role: PublicUser["role"];
     active: boolean;
     created_at: string;
-  }>("SELECT id, name, email, role, active, created_at FROM users ORDER BY created_at ASC");
+    linked_to_school: boolean;
+  }>("SELECT id, name, email, role, active, created_at, linked_to_school FROM users ORDER BY created_at ASC");
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -21,6 +22,7 @@ async function listUsers(): Promise<PublicUser[]> {
     role: r.role,
     active: !!r.active,
     createdAt: r.created_at,
+    linkedToSchool: !!r.linked_to_school,
   }));
 }
 
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest) {
     name?: string;
     email?: string;
     password?: string;
-    role?: "student" | "admin";
+    role?: PublicUser["role"];
   };
   if (!name || !email || !password) {
     return NextResponse.json({ error: "All fields required." }, { status: 400 });
@@ -54,13 +56,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email already exists." }, { status: 409 });
   }
 
+  const roles: PublicUser["role"][] = ["student", "admin", "grade_teacher", "subject_teacher", "guardian"];
+  const safeRole = role && roles.includes(role) ? role : "student";
   const id = uid("usr");
   const { hash, salt } = hashPassword(password);
   await execute(
     "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES ($1, $2, $3, $4, $5, $6, true, $7)",
-    [id, name.trim(), email.trim(), role === "admin" ? "admin" : "student", hash, salt, nowIso()]
+    [id, name.trim(), email.trim(), safeRole, hash, salt, nowIso()]
   );
-  await audit("ADMIN_CREATE", `Created user: ${email} (${role || "student"})`, admin.id);
+  await audit("ADMIN_CREATE", `Created user: ${email} (${safeRole})`, admin.id);
 
-  return NextResponse.json({ users: await listUsers() });
+  return NextResponse.json({ users: await listUsers(), createdId: id });
 }

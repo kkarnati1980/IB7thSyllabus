@@ -16,7 +16,7 @@ export async function GET() {
   const chunkCount = Number(row?.n ?? 0);
 
   return NextResponse.json({
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, linkedToSchool: !!user.linked_to_school },
     subjects,
     progress,
     chunkCount,

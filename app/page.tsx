@@ -12,6 +12,9 @@ export default async function Home() {
   const user = await getCurrentUser();
   if (!user) return <Login admin={false} />;
   if (user.role === "admin") redirect("/admin");
+  if (user.role === "grade_teacher") redirect("/grade-teacher");
+  if (user.role === "subject_teacher") redirect("/subject-teacher");
+  if (user.role === "guardian") redirect("/guardian");
 
   const subjects = await getSubjects();
   const progress = await getProgress(user.id);
@@ -20,7 +23,7 @@ export default async function Home() {
 
   return (
     <StudentApp
-      user={{ id: user.id, name: user.name, email: user.email, role: user.role }}
+      user={{ id: user.id, name: user.name, email: user.email, role: user.role, linkedToSchool: !!user.linked_to_school }}
       initialSubjects={subjects}
       initialProgress={progress}
       initialChunkCount={chunkCount}
