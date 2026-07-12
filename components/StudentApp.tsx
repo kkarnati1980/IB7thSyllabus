@@ -817,10 +817,10 @@ export default function StudentApp({
               </div>
 
               {lessonTab === "canvas" && <CanvasTab scaffold={scaffold} stageIndex={stageIndex} stageDefs={stageDefs} layerBg={layerBg} layerFg={layerFg} canvasEmpty={canvasEmpty} topicImages={topicImages} teacherContent={teacherContent} />}
-              {lessonTab === "quiz" && <QuizTab quizData={quizData} quizState={quizState} quizLoading={quizLoading} generateQuiz={generateQuiz} answerQuiz={answerQuiz} topicImages={topicImages} />}
-              {lessonTab === "flashcards" && <FlashcardsTab flashcards={flashcards} fcIndex={fcIndex} fcFlipped={fcFlipped} fcLoading={fcLoading} generate={generateFlashcards} flip={() => setFcFlipped((f) => !f)} next={() => { setFcIndex((i) => (i + 1) % flashcards.length); setFcFlipped(false); }} prev={() => { setFcIndex((i) => (i - 1 + flashcards.length) % flashcards.length); setFcFlipped(false); }} topicImages={topicImages} />}
-              {lessonTab === "videos" && <VideosTab videos={videos} loading={videosLoading} generate={generateVideos} topicImages={topicImages} />}
-              {lessonTab === "mindmap" && <MindMapTab mindMap={mindMap} loading={mindMapLoading} generate={generateMindMap} topicImages={topicImages} />}
+              {lessonTab === "quiz" && <QuizTab quizData={quizData} quizState={quizState} quizLoading={quizLoading} generateQuiz={generateQuiz} answerQuiz={answerQuiz} topicImages={topicImages} teacherContent={teacherContent} />}
+              {lessonTab === "flashcards" && <FlashcardsTab flashcards={flashcards} fcIndex={fcIndex} fcFlipped={fcFlipped} fcLoading={fcLoading} generate={generateFlashcards} flip={() => setFcFlipped((f) => !f)} next={() => { setFcIndex((i) => (i + 1) % flashcards.length); setFcFlipped(false); }} prev={() => { setFcIndex((i) => (i - 1 + flashcards.length) % flashcards.length); setFcFlipped(false); }} topicImages={topicImages} teacherContent={teacherContent} />}
+              {lessonTab === "videos" && <VideosTab videos={videos} loading={videosLoading} generate={generateVideos} topicImages={topicImages} teacherContent={teacherContent} />}
+              {lessonTab === "mindmap" && <MindMapTab mindMap={mindMap} loading={mindMapLoading} generate={generateMindMap} topicImages={topicImages} teacherContent={teacherContent} />}
             </div>
           </div>
         )}
@@ -1197,7 +1197,7 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
         </div>
       )}
 
-      <TeacherContent items={teacherContent} />
+      <TeacherContent items={teacherContent} filter="text-image" />
       <UsefulResources images={topicImages} />
     </div>
   );
@@ -1213,13 +1213,21 @@ function safeHttpUrl(u: string): string | null {
   }
 }
 
-function TeacherContent({ items }: { items: TeacherContentItem[] }) {
-  if (!items.length) return null;
+type TeacherContentFilter = "text-image" | "video-only";
+
+function TeacherContent({ items, filter }: { items: TeacherContentItem[]; filter: TeacherContentFilter }) {
+  const shown = items.filter((c) =>
+    filter === "video-only"
+      ? c.content_type === "video"
+      : c.content_type === "text" || c.content_type === "image"
+  );
+  if (!shown.length) return null;
+  const heading = filter === "video-only" ? "📹 From your teacher" : "🎓 From your teacher";
   return (
     <div style={{ marginTop: 28, borderTop: "1px solid #E7E1D6", paddingTop: 20 }}>
-      <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, color: "#4C43D9", marginBottom: 14, textTransform: "uppercase", letterSpacing: ".06em" }}>🎓 From your teacher</div>
+      <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, color: "#4C43D9", marginBottom: 14, textTransform: "uppercase", letterSpacing: ".06em" }}>{heading}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {items.map((c) => {
+        {shown.map((c) => {
           if (c.content_type === "image") {
             const src = safeHttpUrl(c.content);
             if (!src) return null;
@@ -1240,6 +1248,7 @@ function TeacherContent({ items }: { items: TeacherContentItem[] }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 15, color: "#23201B", lineHeight: 1.3 }}>{c.title}</div>
                     <div style={{ fontSize: 13, color: "#4A453C", marginTop: 6, lineHeight: 1.45, wordBreak: "break-all" }}>{c.content}</div>
+                    <div style={{ display: "inline-block", marginTop: 8, background: "#F3F1FB", color: "#4C43D9", fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 20 }}>👩‍🏫 Teacher recommended</div>
                   </div>
                   <div style={{ color: "#C0392B", fontSize: 18, flex: "0 0 18px" }}>↗</div>
                 </div>
@@ -1259,9 +1268,10 @@ function TeacherContent({ items }: { items: TeacherContentItem[] }) {
 }
 
 /* ===== QUIZ TAB ===== */
-function QuizTab({ quizData, quizState, quizLoading, generateQuiz, answerQuiz, topicImages }: {
+function QuizTab({ quizData, quizState, quizLoading, generateQuiz, answerQuiz, topicImages, teacherContent }: {
   quizData: QuizItem[]; quizState: Record<number, { answer: string; correct: boolean }>;
   quizLoading: boolean; generateQuiz: () => void; answerQuiz: (qi: number, answer: string) => void; topicImages: TopicImage[];
+  teacherContent: TeacherContentItem[];
 }) {
   const score = Object.values(quizState).filter((x) => x.correct).length;
   const answered = Object.keys(quizState).length;
@@ -1275,6 +1285,7 @@ function QuizTab({ quizData, quizState, quizLoading, generateQuiz, answerQuiz, t
             <div style={{ textAlign: "center" }}><div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 32, color: "#4C43D9" }}>{score}/{answered}</div><div style={{ fontSize: 12, color: "#8A8172" }}>answered correct</div></div>
             <div style={{ flex: 1, height: 10, background: "#EEE9DF", borderRadius: 6, overflow: "hidden" }}><div style={{ height: "100%", background: "#2E9E6B", borderRadius: 6, width: `${scoreBar}%` }} /></div>
           </div>
+          <TeacherContent items={teacherContent} filter="text-image" />
           {quizData.map((q, i) => {
             const st = quizState[i];
             return (
@@ -1301,9 +1312,10 @@ function QuizTab({ quizData, quizState, quizLoading, generateQuiz, answerQuiz, t
 }
 
 /* ===== FLASHCARDS TAB ===== */
-function FlashcardsTab({ flashcards, fcIndex, fcFlipped, fcLoading, generate, flip, next, prev, topicImages }: {
+function FlashcardsTab({ flashcards, fcIndex, fcFlipped, fcLoading, generate, flip, next, prev, topicImages, teacherContent }: {
   flashcards: Flashcard[]; fcIndex: number; fcFlipped: boolean; fcLoading: boolean;
   generate: () => void; flip: () => void; next: () => void; prev: () => void; topicImages: TopicImage[];
+  teacherContent: TeacherContentItem[];
 }) {
   const card = flashcards[fcIndex];
   return (
@@ -1325,6 +1337,7 @@ function FlashcardsTab({ flashcards, fcIndex, fcFlipped, fcLoading, generate, fl
         </>
       )}
       {fcLoading && <Loading emoji="🗂" text="Generating flashcards…" />}
+      <TeacherContent items={teacherContent} filter="text-image" />
       <UsefulResources images={topicImages} />
     </div>
   );
@@ -1332,7 +1345,7 @@ function FlashcardsTab({ flashcards, fcIndex, fcFlipped, fcLoading, generate, fl
 const fcNavBtn: React.CSSProperties = { background: "#fff", border: "1px solid #E7E1D6", borderRadius: 14, padding: "12px 24px", fontWeight: 700, cursor: "pointer", fontSize: 18 };
 
 /* ===== VIDEOS TAB ===== */
-function VideosTab({ videos, loading, generate, topicImages }: { videos: import("@/lib/types").VideoItem[]; loading: boolean; generate: () => void; topicImages: TopicImage[] }) {
+function VideosTab({ videos, loading, generate, topicImages, teacherContent }: { videos: import("@/lib/types").VideoItem[]; loading: boolean; generate: () => void; topicImages: TopicImage[]; teacherContent: TeacherContentItem[] }) {
   const ytUrl = (v: import("@/lib/types").VideoItem) => {
     if (v.video_id) return `https://www.youtube.com/watch?v=${v.video_id}${v.timestamp_seconds ? "&t=" + v.timestamp_seconds : ""}`;
     return `https://www.youtube.com/results?search_query=${encodeURIComponent(v.search_query || v.title)}`;
@@ -1340,6 +1353,7 @@ function VideosTab({ videos, loading, generate, topicImages }: { videos: import(
   return (
     <div style={{ padding: "26px 30px 40px" }}>
       <ToolHeader title="Explanatory Videos" subtitle="Curated YouTube resources — concept-specific, Grade 7 IB level" btnLabel={loading ? "Finding…" : videos.length ? "Refresh" : "Find Videos"} btnColor="#C0392B" onClick={generate} />
+      <TeacherContent items={teacherContent} filter="video-only" />
       {videos.map((v, i) => (
         <a key={i} href={ytUrl(v)} target="_blank" rel="noreferrer" style={{ display: "block", background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: "18px 20px", marginBottom: 12, textDecoration: "none", animation: "jfade .3s ease" }}>
           <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
@@ -1361,7 +1375,7 @@ function VideosTab({ videos, loading, generate, topicImages }: { videos: import(
 }
 
 /* ===== MIND MAP TAB ===== */
-function MindMapTab({ mindMap, loading, generate, topicImages }: { mindMap: MindMap | null; loading: boolean; generate: () => void; topicImages: TopicImage[] }) {
+function MindMapTab({ mindMap, loading, generate, topicImages, teacherContent }: { mindMap: MindMap | null; loading: boolean; generate: () => void; topicImages: TopicImage[]; teacherContent: TeacherContentItem[] }) {
   return (
     <div style={{ padding: "26px 30px 40px" }}>
       <ToolHeader title="Mind Map" subtitle="Full conceptual landscape of this topic" btnLabel={loading ? "Building…" : mindMap ? "Rebuild" : "Build Mind Map"} btnColor="#7A5AC2" onClick={generate} />
@@ -1380,6 +1394,7 @@ function MindMapTab({ mindMap, loading, generate, topicImages }: { mindMap: Mind
         </div>
       )}
       {loading && <Loading emoji="🕸" text="Building concept map…" />}
+      <TeacherContent items={teacherContent} filter="text-image" />
       <UsefulResources images={topicImages} />
     </div>
   );
