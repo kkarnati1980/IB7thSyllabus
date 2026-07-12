@@ -5,6 +5,7 @@ import { execute, nowIso, query, queryOne, uid } from "@/lib/db";
 export const runtime = "nodejs";
 
 // GET /api/images?topicName=xxx&subjectName=yyy
+// Students only see approved images; admin sees all
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -12,6 +13,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const topicName = searchParams.get("topicName") ?? "";
   const subjectName = searchParams.get("subjectName") ?? "";
+  const all = searchParams.get("all") === "true"; // admin param to see all statuses
+
+  let sql = "SELECT id, image_url, thumbnail_url, alt_text, source, status FROM topic_images WHERE topic_name = $1 AND subject_name = $2";
+  const params: unknown[] = [topicName, subjectName];
+
+  if (!all || user.role !== "admin") {
+    sql += " AND status = 'approved'";
+  }
+  sql += " ORDER BY created_at ASC";
 
   const images = await query<{
     id: string;
@@ -19,15 +29,13 @@ export async function GET(req: NextRequest) {
     thumbnail_url: string;
     alt_text: string;
     source: string;
-  }>(
-    "SELECT id, image_url, thumbnail_url, alt_text, source FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
-    [topicName, subjectName]
-  );
+    status: string;
+  }>(sql, params);
 
   return NextResponse.json({ images });
 }
 
-// POST /api/images — admin generates/saves images for a topic
+// POST /api/images — admin generates/saves images
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || user.role !== "admin") {
@@ -37,57 +45,69 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as {
     topicName?: string;
     subjectName?: string;
-    action?: "web" | "ai" | "manual";
+    action?: "web" | "ai" | "manual" | "approve" | "reject";
     imageUrl?: string;
     altText?: string;
+    imageId?: string;
   };
 
   if (!body.topicName || !body.subjectName) {
     return NextResponse.json({ error: "topicName and subjectName required" }, { status: 400 });
   }
 
+  // Approve / reject existing image
+  if (body.action === "approve" || body.action === "reject") {
+    if (!body.imageId) return NextResponse.json({ error: "imageId required" }, { status: 400 });
+    const status = body.action === "approve" ? "approved" : "rejected";
+    await execute("UPDATE topic_images SET status = $1 WHERE id = $2", [status, body.imageId]);
+    const images = await query(
+      "SELECT id, image_url, thumbnail_url, alt_text, source, status FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
+      [body.topicName, body.subjectName]
+    );
+    return NextResponse.json({ images });
+  }
+
   if (body.action === "manual" && body.imageUrl) {
-    // Manual URL save
     const id = uid("img");
     await execute(
-      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)",
       [id, body.topicName, body.subjectName, body.imageUrl, body.imageUrl, body.altText ?? body.topicName, "manual", nowIso()]
     );
     const images = await query(
-      "SELECT id, image_url, thumbnail_url, alt_text, source FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
+      "SELECT id, image_url, thumbnail_url, alt_text, source, status FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
       [body.topicName, body.subjectName]
     );
     return NextResponse.json({ images });
   }
 
   if (body.action === "web") {
-    // Web search via Unsplash (no API key needed for source URL approach)
-    const searchQuery = encodeURIComponent(`${body.topicName} ${body.subjectName} education science`);
-    const unsplashUrl = `https://source.unsplash.com/800x500/?${searchQuery}`;
-    const thumbnailUrl = `https://source.unsplash.com/400x250/?${searchQuery}`;
+    // Use Unsplash source URL (no API key needed)
+    const q = encodeURIComponent(`${body.topicName} ${body.subjectName} education IB MYP Grade 7`);
+    const seed = Date.now(); // different seed each time for variety
+    const imageUrl = `https://source.unsplash.com/800x500/?${q}&sig=${seed}`;
+    const thumbnailUrl = `https://source.unsplash.com/400x250/?${q}&sig=${seed}`;
 
     const id = uid("img");
     await execute(
-      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-      [id, body.topicName, body.subjectName, unsplashUrl, thumbnailUrl, `${body.topicName} - educational image`, "web", nowIso()]
+      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,'web','pending',$7)",
+      [id, body.topicName, body.subjectName, imageUrl, thumbnailUrl, `${body.topicName} — educational image`, nowIso()]
     );
     const images = await query(
-      "SELECT id, image_url, thumbnail_url, alt_text, source FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
+      "SELECT id, image_url, thumbnail_url, alt_text, source, status FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
       [body.topicName, body.subjectName]
     );
     return NextResponse.json({ images });
   }
 
   if (body.action === "ai") {
-    // OpenAI DALL-E image generation
     const apiKeyRow = await queryOne<{ value: string }>(
       "SELECT value FROM app_config WHERE key = 'openai_api_key'"
     );
     if (!apiKeyRow?.value) {
-      return NextResponse.json({ error: "OpenAI API key not configured. Add it in Admin → Config." }, { status: 400 });
+      return NextResponse.json({ error: "OpenAI API key not configured. Add it in Admin → Config & API Keys." }, { status: 400 });
     }
 
-    const prompt = `Educational illustration for Grade 7 IB MYP ${body.subjectName}: ${body.topicName}. Clean, clear, colorful diagram suitable for a 12-year-old student. No text labels.`;
+    const prompt = `A clean, colorful educational illustration for Grade 7 IB MYP ${body.subjectName}: ${body.topicName}. Clear diagram style suitable for a 12-year-old student. Scientific accuracy. White background. No text overlays.`;
 
     const res = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
@@ -106,21 +126,24 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-      return NextResponse.json({ error: err.error?.message ?? "DALL-E generation failed" }, { status: 502 });
+      return NextResponse.json(
+        { error: `OpenAI error: ${err.error?.message ?? "Generation failed. Ensure your OpenAI account has DALL-E 3 access."}` },
+        { status: 502 }
+      );
     }
 
     const data = await res.json() as { data: { url: string }[] };
     const imageUrl = data.data[0]?.url;
-    if (!imageUrl) return NextResponse.json({ error: "No image returned" }, { status: 502 });
+    if (!imageUrl) return NextResponse.json({ error: "No image returned from OpenAI" }, { status: 502 });
 
     const id = uid("img");
     await execute(
-      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-      [id, body.topicName, body.subjectName, imageUrl, imageUrl, `AI illustration: ${body.topicName}`, "ai", nowIso()]
+      "INSERT INTO topic_images (id, topic_name, subject_name, image_url, thumbnail_url, alt_text, source, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,'ai','pending',$7)",
+      [id, body.topicName, body.subjectName, imageUrl, imageUrl, `AI illustration: ${body.topicName}`, nowIso()]
     );
 
     const images = await query(
-      "SELECT id, image_url, thumbnail_url, alt_text, source FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
+      "SELECT id, image_url, thumbnail_url, alt_text, source, status FROM topic_images WHERE topic_name = $1 AND subject_name = $2 ORDER BY created_at ASC",
       [body.topicName, body.subjectName]
     );
     return NextResponse.json({ images });
@@ -129,7 +152,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 }
 
-// DELETE /api/images?id=xxx — remove a specific image
+// DELETE /api/images?id=xxx
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user || user.role !== "admin") {
