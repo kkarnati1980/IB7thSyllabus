@@ -83,6 +83,20 @@ export async function POST(req: NextRequest) {
     if (!["text", "image", "video"].includes(contentType)) {
       return NextResponse.json({ error: "Invalid contentType" }, { status: 400 });
     }
+    // image/video content is rendered into src/href — only allow http(s) so a stored
+    // javascript:/data: URI can never reach a student's browser.
+    if (contentType === "image" || contentType === "video") {
+      let ok = false;
+      try {
+        const p = new URL(content);
+        ok = p.protocol === "http:" || p.protocol === "https:";
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        return NextResponse.json({ error: "image/video content must be an http(s) URL" }, { status: 400 });
+      }
+    }
     if (!(await ownsSubject(user, subjectName))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

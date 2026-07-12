@@ -1204,6 +1204,15 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
 }
 
 /* ===== FROM YOUR TEACHER ===== */
+function safeHttpUrl(u: string): string | null {
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:" ? p.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function TeacherContent({ items }: { items: TeacherContentItem[] }) {
   if (!items.length) return null;
   return (
@@ -1212,16 +1221,20 @@ function TeacherContent({ items }: { items: TeacherContentItem[] }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {items.map((c) => {
           if (c.content_type === "image") {
+            const src = safeHttpUrl(c.content);
+            if (!src) return null;
             return (
               <div key={c.id} style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #E7E1D6", background: "#fff" }}>
-                <img src={c.content} alt={c.title} style={{ width: "100%", maxHeight: 340, objectFit: "cover", display: "block" }} />
+                <img src={src} alt={c.title} style={{ width: "100%", maxHeight: 340, objectFit: "cover", display: "block" }} />
                 <div style={{ padding: "10px 14px", fontSize: 14, fontWeight: 600, color: "#23201B" }}>{c.title}</div>
               </div>
             );
           }
           if (c.content_type === "video") {
+            const href = safeHttpUrl(c.content);
+            if (!href) return null;
             return (
-              <a key={c.id} href={c.content} target="_blank" rel="noreferrer" style={{ display: "block", background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: "18px 20px", textDecoration: "none" }}>
+              <a key={c.id} href={href} target="_blank" rel="noreferrer noopener" style={{ display: "block", background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: "18px 20px", textDecoration: "none" }}>
                 <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                   <div style={{ width: 48, height: 48, borderRadius: 14, background: "#FDECEA", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flex: "0 0 48px" }}>▶</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
