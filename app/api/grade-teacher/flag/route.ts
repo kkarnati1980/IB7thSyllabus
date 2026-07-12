@@ -30,8 +30,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const target = await queryOne<{ role: string }>("SELECT role FROM users WHERE id = $1", [userId]);
-    if (target?.role !== "student") {
+    const target = await queryOne<{ role: string; linked_to_school: boolean }>(
+      "SELECT role, linked_to_school FROM users WHERE id = $1",
+      [userId]
+    );
+    if (!target || target.role !== "student" || !target.linked_to_school) {
       return NextResponse.json({ error: "Student not found" }, { status: 404 });
     }
 
