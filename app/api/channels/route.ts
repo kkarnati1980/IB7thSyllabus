@@ -65,13 +65,17 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const row = await queryOne<{ added_by: string | null }>(
-    "SELECT added_by FROM allowed_video_channels WHERE id = $1",
+  const row = await queryOne<{ added_by: string | null; grade_level_id: string | null }>(
+    "SELECT added_by, grade_level_id FROM allowed_video_channels WHERE id = $1",
     [id]
   );
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (row.added_by === null) {
     return NextResponse.json({ error: "Default channels cannot be deleted." }, { status: 403 });
+  }
+  // A grade teacher may only delete channels for their own grade; admins may delete any.
+  if (user.role !== "admin" && row.grade_level_id !== user.grade_level_id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   await execute("DELETE FROM allowed_video_channels WHERE id = $1", [id]);
   return NextResponse.json({ ok: true });
