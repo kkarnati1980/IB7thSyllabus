@@ -38,11 +38,17 @@ export default function AdminPortal({
   const [newSubjects, setNewSubjects] = useState<string[]>([]);
   const [newError, setNewError] = useState("");
   const [availableSubjects, setAvailableSubjects] = useState<string[]>([]);
+  const [newGrade, setNewGrade] = useState("");
+  const [availableGrades, setAvailableGrades] = useState<{ id: string; grade: string }[]>([]);
 
   useEffect(() => {
     fetch("/api/admin/school?type=subjects")
       .then((r) => (r.ok ? r.json() : { subjects: [] }))
       .then((j) => setAvailableSubjects((j.subjects ?? []).map((s: { short_name: string }) => s.short_name)))
+      .catch(() => {});
+    fetch("/api/admin/school?type=grades")
+      .then((r) => (r.ok ? r.json() : { grades: [] }))
+      .then((j) => setAvailableGrades(j.grades ?? []))
       .catch(() => {});
   }, []);
 
@@ -69,7 +75,10 @@ export default function AdminPortal({
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, email: newEmail, password: newPass, role: newRole }),
+      body: JSON.stringify({
+        name: newName, email: newEmail, password: newPass, role: newRole,
+        standaloneGradeId: newRole === "student" ? newGrade || null : null,
+      }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) { setNewError(j.error || "Could not create user."); return; }
@@ -94,7 +103,7 @@ export default function AdminPortal({
 
     setUsers(latest);
     setNewName(""); setNewEmail(""); setNewPass(""); setNewRole("student");
-    setNewGuardianStudent(""); setNewSubjects([]); setNewError("");
+    setNewGuardianStudent(""); setNewSubjects([]); setNewGrade(""); setNewError("");
     refreshAudit();
   }
 
@@ -222,6 +231,18 @@ export default function AdminPortal({
             <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={{ ...panelInput, background: "#fff" }}>
               {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
+
+            {newRole === "student" && (
+              <>
+                <label style={smallLabel}>Grade (standalone students)</label>
+                <select value={newGrade} onChange={(e) => setNewGrade(e.target.value)} style={{ ...panelInput, background: "#fff" }}>
+                  <option value="">— Choose a grade —</option>
+                  {availableGrades.map((g) => (
+                    <option key={g.id} value={g.id}>Grade {g.grade}</option>
+                  ))}
+                </select>
+              </>
+            )}
 
             {newRole === "guardian" && (
               <>

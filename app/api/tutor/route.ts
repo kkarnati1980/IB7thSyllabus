@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
+import { getUserGradeId } from "@/lib/school";
+import { isResponseSafe, getSafetyFallback } from "@/lib/guardrails";
 import { getClient, MODEL, messageText } from "@/lib/anthropic";
 import { tutorSystemPrompt } from "@/lib/prompts";
 import { trackerSummary, updateProgress } from "@/lib/progress";
@@ -123,8 +125,11 @@ export async function POST(req: NextRequest) {
   const subjectName = body.subject?.name || "";
   const history = body.history || [];
 
+  const gradeId = await getUserGradeId(user.id); // undefined for teachers/admin → full KB
+  const isTeacher = ["subject_teacher", "grade_teacher"].includes(user.role);
+
   const queryStr = (topicName ? topicName + " " : "") + (body.userText || body.kick || "");
-  const chunks = await retrieve(queryStr);
+  const chunks = await retrieve(queryStr, 4, gradeId);
   const ctx = chunks.map((c) => `[${c.file} › ${c.heading}] ${c.text}`).join("\n\n");
 
   const summary = await trackerSummary(user.id);
@@ -142,7 +147,7 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1600,
-      system: tutorSystemPrompt(topicName, subjectName, ctx, summary),
+      system: tutorSystemPrompt(topicName, subjectName, ctx, summary, gradeId ?? "grade_7_iish", isTeacher),
       messages: convo,
     });
     raw = messageText(message);
@@ -174,6 +179,14 @@ export async function POST(req: NextRequest) {
   if (looksLikeJson(say)) {
     const extracted = extractSay(say);
     say = extracted || "Let's keep going — tell me more about what you're thinking.";
+  }
+
+  // Content safety net — if the spoken reply trips a blocked pattern, swap it
+  // for a gentle on-topic redirect rather than let it reach the student.
+  const safety = isResponseSafe(say);
+  if (!safety.safe) {
+    console.warn(`tutor response blocked (${safety.reason}) — replaced with fallback`);
+    say = getSafetyFallback(topicName || subjectName || "your topic");
   }
 
   const scaffold = mergeScaffold(body.scaffold || {}, data || {});

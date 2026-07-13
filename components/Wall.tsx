@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { stripMentionPrefix } from "@/lib/mentions";
 
 type WallMessage = {
   id: string;
@@ -183,7 +184,7 @@ export default function Wall({
               </span>
             </div>
             <div style={{ fontSize: 14, lineHeight: 1.5, color: "#3A362E", whiteSpace: "pre-wrap" }}>
-              {m.content}
+              {stripMentionPrefix(m.content)}
             </div>
           </div>
         ))}

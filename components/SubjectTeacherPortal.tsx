@@ -12,6 +12,8 @@ const DANGER = "#C0392B";
 const BG = "#EFEAE0";
 const CARD = "#fff";
 const BORDER = "#E7E1D6";
+const DARK = "#23201B";
+const MUTED = "#8A8172";
 
 type Topic = { id: string; name: string };
 type SyllabusSubject = { name: string; topics: Topic[] };
@@ -43,13 +45,31 @@ type Criterion = {
   criterion_name: string;
   max_score: number;
 };
+type Flag = {
+  id: string;
+  user_id: string;
+  topic_id: string;
+  topic_name: string;
+  subject_name: string;
+  reason: string;
+  resolved: boolean;
+  created_at: string;
+};
+type Channel = {
+  id: string;
+  channel_name: string;
+  channel_keywords: string;
+  grade_level_id: string | null;
+  added_by: string | null;
+  created_at: string;
+};
 
-type TabKey = "students" | "content" | "criteria" | "wall";
+type TabKey = "students" | "content" | "criteria" | "wall" | "settings";
 
 const card: React.CSSProperties = {
   background: CARD,
   border: `1px solid ${BORDER}`,
-  borderRadius: 14,
+  borderRadius: 20,
   padding: 16,
 };
 const inputStyle: React.CSSProperties = {
@@ -63,7 +83,7 @@ const btn = (bg: string): React.CSSProperties => ({
   background: bg,
   color: "#fff",
   border: "none",
-  borderRadius: 10,
+  borderRadius: 12,
   padding: "8px 14px",
   fontWeight: 700,
   fontSize: 13,
@@ -77,6 +97,14 @@ function gradeColor(g: number): string {
   if (g >= 3) return WARNING;
   return DANGER;
 }
+
+const TABS: { key: TabKey; label: string; icon: string }[] = [
+  { key: "students", label: "My Students", icon: "👥" },
+  { key: "content", label: "Topic Content", icon: "📚" },
+  { key: "criteria", label: "MYP Criteria", icon: "◆" },
+  { key: "wall", label: "Wall", icon: "💬" },
+  { key: "settings", label: "Settings", icon: "⚙️" },
+];
 
 export default function SubjectTeacherPortal({
   user,
@@ -99,6 +127,7 @@ export default function SubjectTeacherPortal({
   const [loadingDrill, setLoadingDrill] = useState(false);
   const [flagModal, setFlagModal] = useState<{ topicId: string; topicName: string } | null>(null);
   const [flagReason, setFlagReason] = useState("");
+  const [flags, setFlags] = useState<Flag[]>([]);
 
   // Content tab
   const [content, setContent] = useState<Content[]>([]);
@@ -112,6 +141,14 @@ export default function SubjectTeacherPortal({
   // Criteria tab
   const [criteria, setCriteria] = useState<Criterion[]>([]);
   const [critEdits, setCritEdits] = useState<Record<string, string>>({});
+
+  // Settings tab (allowed video channels)
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [loadingChannels, setLoadingChannels] = useState(false);
+  const [channelError, setChannelError] = useState("");
+  const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelKeywords, setNewChannelKeywords] = useState("");
+  const [channelBusy, setChannelBusy] = useState(false);
 
   // Topics come from the syllabus keyed by short_name (the assigned subject value),
   // which the client-side `syllabus` prop (keyed by verbose subject) can't match.
@@ -150,9 +187,23 @@ export default function SubjectTeacherPortal({
     }
   }, [selectedSubject]);
 
+  // Powers the "Active Flags" stat tile and the per-student flag count column.
+  const loadFlags = useCallback(async () => {
+    try {
+      const r = await fetch("/api/teacher/flags");
+      if (r.ok) {
+        const j = (await r.json()) as { flags: Flag[] };
+        setFlags(j.flags ?? []);
+      }
+    } catch {
+      /* keep last-known */
+    }
+  }, []);
+
   useEffect(() => {
     loadStudents();
-  }, [loadStudents]);
+    loadFlags();
+  }, [loadStudents, loadFlags]);
 
   async function openDrill(student: Student, subjectName: string) {
     setDrillStudent(student);
@@ -207,6 +258,7 @@ export default function SubjectTeacherPortal({
     } finally {
       setFlagModal(null);
       setFlagReason("");
+      loadFlags();
     }
   }
 
@@ -310,61 +362,201 @@ export default function SubjectTeacherPortal({
     }
   }
 
+  const loadChannels = useCallback(async () => {
+    setLoadingChannels(true);
+    try {
+      const r = await fetch("/api/channels");
+      if (r.ok) {
+        const j = (await r.json()) as { channels: Channel[] };
+        setChannels(j.channels ?? []);
+      }
+    } catch {
+      /* keep last-known */
+    } finally {
+      setLoadingChannels(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "settings") loadChannels();
+  }, [tab, loadChannels]);
+
+  async function addChannel() {
+    if (!newChannelName.trim() || !newChannelKeywords.trim() || channelBusy) return;
+    setChannelBusy(true);
+    setChannelError("");
+    try {
+      const r = await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelName: newChannelName.trim(),
+          channelKeywords: newChannelKeywords.trim(),
+        }),
+      });
+      if (r.status === 403) {
+        setChannelError("Only grade teachers can change channels.");
+      } else if (r.ok) {
+        setNewChannelName("");
+        setNewChannelKeywords("");
+        await loadChannels();
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setChannelBusy(false);
+    }
+  }
+
+  async function deleteChannel(c: Channel) {
+    setChannelError("");
+    try {
+      const r = await fetch(`/api/channels?id=${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      if (r.status === 403) {
+        setChannelError("Only grade teachers can change channels.");
+      } else if (r.ok) {
+        await loadChannels();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     router.push("/");
     router.refresh();
   }
 
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: "students", label: "My Students" },
-    { key: "content", label: "Topic Content" },
-    { key: "criteria", label: "MYP Criteria" },
-    { key: "wall", label: "Wall" },
-  ];
+  const navBtn = (key: TabKey): React.CSSProperties => ({
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    border: "none",
+    cursor: "pointer",
+    fontSize: 20,
+    background: tab === key ? PRIMARY : "transparent",
+    color: tab === key ? "#fff" : MUTED,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  });
+
+  // Stats row (My Students tab) — derived entirely from data already loaded above.
+  const allGrades = students.flatMap((s) => Object.values(s.grades));
+  const avgGrade = allGrades.length ? allGrades.reduce((a, b) => a + b, 0) / allGrades.length : 0;
+  const activeFlagCount = flags.filter((f) => !f.resolved).length;
+  // ponytail: `syllabus` is keyed by verbose subject name while assigned `subjects` are the
+  // short values used elsewhere (see loadTopics comment above), so this is a best-effort
+  // match for a dashboard stat, not an authoritative count.
+  const topicsCovered = subjects.reduce((sum, subjName) => {
+    const match = syllabus.find(
+      (sub) => sub.name === subjName || sub.name.toLowerCase().includes(subjName.toLowerCase())
+    );
+    return sum + (match?.topics.length ?? 0);
+  }, 0);
 
   return (
-    <div style={{ minHeight: "100vh", background: BG, color: "#23201B", fontFamily: "system-ui, sans-serif" }}>
-      <header
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        background: BG,
+        color: DARK,
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      {/* ---- SIDEBAR ---- */}
+      <aside
         style={{
-          background: CARD,
-          borderBottom: `1px solid ${BORDER}`,
-          padding: "16px 24px",
+          width: 88,
+          flex: "0 0 88px",
+          background: DARK,
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 12,
+          padding: "22px 0",
+          gap: 8,
+          position: "sticky",
+          top: 0,
+          height: "100vh",
         }}
       >
-        <div>
-          <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 20, color: PRIMARY }}>
-            Subject Teacher
+        <div
+          style={{
+            width: 46,
+            height: 46,
+            borderRadius: 14,
+            background: "linear-gradient(150deg,#6B62F5,#4C43D9)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: DISPLAY,
+            fontWeight: 800,
+            color: "#fff",
+            fontSize: 22,
+            boxShadow: "0 6px 18px rgba(76,67,217,.5)",
+            marginBottom: 14,
+          }}
+        >
+          J
+        </div>
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)} title={t.label} style={navBtn(t.key)}>
+            {t.icon}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {selectedSubject && (
+          <div
+            title={selectedSubject}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#fff",
+              background: "#3A362E",
+              borderRadius: 10,
+              padding: "6px 4px",
+              textAlign: "center",
+              maxWidth: 64,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {selectedSubject}
           </div>
-          <div style={{ fontSize: 12, color: "#8A8172" }}>{user.name}</div>
-        </div>
-        <button onClick={logout} style={{ ...btn("#8A8172"), marginLeft: "auto" }}>
-          Log out
+        )}
+        <button
+          onClick={logout}
+          title="Log out"
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: 16,
+            border: "none",
+            cursor: "pointer",
+            fontSize: 18,
+            background: "transparent",
+            color: MUTED,
+            marginTop: 4,
+          }}
+        >
+          ⏻
         </button>
-      </header>
+      </aside>
 
-      <div style={{ maxWidth: 960, margin: "0 auto", padding: 24 }}>
-        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                ...btn(tab === t.key ? PRIMARY : "#fff"),
-                color: tab === t.key ? "#fff" : "#5A5348",
-                border: tab === t.key ? "none" : `1px solid ${BORDER}`,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
+      {/* ---- MAIN ---- */}
+      <main style={{ flex: 1, minWidth: 0, padding: 32, overflowY: "auto", height: "100vh" }}>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 24, color: DARK }}>
+            {TABS.find((t) => t.key === tab)?.label}
+          </div>
+          <div style={{ fontSize: 13, color: MUTED }}>{user.name}</div>
         </div>
 
-        {tab !== "students" && (
-          <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+        {tab !== "students" && tab !== "settings" && tab !== "wall" && (
+          <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 13, color: "#5A5348", fontWeight: 700 }}>Subject:</label>
             <select
               value={selectedSubject}
@@ -384,55 +576,268 @@ export default function SubjectTeacherPortal({
         {/* ---- MY STUDENTS ---- */}
         {tab === "students" && (
           <div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: 16,
+                marginBottom: 24,
+              }}
+            >
+              {[
+                { label: "Total Students", value: String(students.length), color: PRIMARY },
+                { label: "Active Flags", value: String(activeFlagCount), color: WARNING },
+                {
+                  label: "Avg IB Grade",
+                  value: allGrades.length ? avgGrade.toFixed(1) : "–",
+                  color: allGrades.length ? gradeColor(avgGrade) : MUTED,
+                },
+                { label: "Topics Covered", value: String(topicsCovered), color: SUCCESS },
+              ].map((s) => (
+                <div key={s.label} style={card}>
+                  <div style={{ fontSize: 12, color: MUTED, fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 28, color: s.color }}>
+                    {s.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {loadingStudents ? (
-              <div style={{ color: "#8A8172", padding: 24 }}>Loading students…</div>
+              <div style={{ color: MUTED, padding: 24 }}>Loading students…</div>
             ) : students.length === 0 ? (
-              <div style={{ ...card, textAlign: "center", color: "#8A8172" }}>
+              <div style={{ ...card, textAlign: "center", color: MUTED }}>
                 No students linked to the school yet.
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {students.map((s) => (
-                  <div key={s.id} style={card}>
-                    <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{s.name}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {subjects.length === 0 && (
-                        <span style={{ fontSize: 12, color: "#8A8172" }}>No assigned subjects.</span>
-                      )}
-                      {subjects.map((subj) => (
-                        <button
-                          key={subj}
-                          onClick={() => openDrill(s, subj)}
-                          style={{
-                            border: `1px solid ${BORDER}`,
-                            background: "#FBFAF7",
-                            borderRadius: 10,
-                            padding: "6px 10px",
-                            cursor: "pointer",
-                            fontSize: 12,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            fontFamily: "inherit",
-                          }}
-                        >
-                          <span style={{ color: "#5A5348" }}>{subj}</span>
-                          <span
-                            style={{
-                              fontWeight: 800,
-                              color: "#fff",
-                              background: gradeColor(s.grades[subj] ?? 1),
-                              borderRadius: 6,
-                              padding: "1px 7px",
-                            }}
-                          >
-                            {s.grades[subj] ?? "–"}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+              <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: "#FBFAF7", borderBottom: `1px solid ${BORDER}` }}>
+                        {["Student", "Last Active", "IB Grade", "A", "B", "C", "D", "Flags", "Actions"].map(
+                          (h) => (
+                            <th
+                              key={h}
+                              style={{
+                                textAlign: "left",
+                                padding: "10px 12px",
+                                color: "#5A5348",
+                                fontWeight: 700,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {students.flatMap((s) => {
+                        const isOpen = drillStudent?.id === s.id;
+                        const studentGrades = Object.values(s.grades);
+                        const overall = studentGrades.length
+                          ? studentGrades.reduce((a, b) => a + b, 0) / studentGrades.length
+                          : null;
+                        const studentFlagCount = flags.filter((f) => f.user_id === s.id).length;
+
+                        const rows: React.ReactNode[] = [
+                          <tr key={s.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
+                            <td style={{ padding: "10px 12px", fontWeight: 700 }}>{s.name}</td>
+                            <td style={{ padding: "10px 12px", color: MUTED }}>–</td>
+                            <td style={{ padding: "10px 12px" }}>
+                              {overall === null ? (
+                                <span style={{ color: MUTED }}>–</span>
+                              ) : (
+                                <span
+                                  style={{
+                                    fontWeight: 800,
+                                    color: "#fff",
+                                    background: gradeColor(overall),
+                                    borderRadius: 6,
+                                    padding: "1px 8px",
+                                  }}
+                                >
+                                  {overall.toFixed(1)}
+                                </span>
+                              )}
+                            </td>
+                            {["A", "B", "C", "D"].map((k) => (
+                              <td key={k} style={{ padding: "10px 12px", color: MUTED }}>
+                                –
+                              </td>
+                            ))}
+                            <td style={{ padding: "10px 12px" }}>
+                              {studentFlagCount > 0 ? (
+                                <span
+                                  style={{
+                                    fontWeight: 800,
+                                    color: "#fff",
+                                    background: WARNING,
+                                    borderRadius: 10,
+                                    padding: "1px 8px",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {studentFlagCount}
+                                </span>
+                              ) : (
+                                <span style={{ color: MUTED }}>–</span>
+                              )}
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {subjects.length === 0 && (
+                                  <span style={{ fontSize: 12, color: MUTED }}>No subjects</span>
+                                )}
+                                {subjects.map((subj) => (
+                                  <button
+                                    key={subj}
+                                    onClick={() => openDrill(s, subj)}
+                                    style={{
+                                      border: `1px solid ${BORDER}`,
+                                      background: isOpen && drillSubject === subj ? "#EFEAFB" : "#FBFAF7",
+                                      borderRadius: 10,
+                                      padding: "5px 9px",
+                                      cursor: "pointer",
+                                      fontSize: 11,
+                                      fontFamily: "inherit",
+                                      color: "#5A5348",
+                                    }}
+                                  >
+                                    {subj} · {s.grades[subj] ?? "–"}
+                                  </button>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>,
+                        ];
+
+                        if (isOpen) {
+                          rows.push(
+                            <tr key={`${s.id}-detail`}>
+                              <td
+                                colSpan={9}
+                                style={{ padding: 0, borderBottom: `1px solid ${BORDER}`, background: "#FBFAF7" }}
+                              >
+                                <div style={{ padding: 16 }}>
+                                  <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+                                    <div style={{ fontWeight: 800, fontFamily: DISPLAY }}>
+                                      {s.name} · {drillSubject}
+                                    </div>
+                                    <button
+                                      onClick={() => setDrillStudent(null)}
+                                      style={{ ...btn(MUTED), marginLeft: "auto" }}
+                                    >
+                                      Close
+                                    </button>
+                                  </div>
+
+                                  {loadingDrill ? (
+                                    <div style={{ color: MUTED, padding: 8 }}>Loading…</div>
+                                  ) : assessments.length === 0 ? (
+                                    <div style={{ color: MUTED, padding: 8 }}>
+                                      No assessments yet for this subject.
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                      {assessments.map((a) => {
+                                        const mastery = Math.round((a.raw_score / 8) * 100);
+                                        return (
+                                          <div
+                                            key={a.id}
+                                            style={{
+                                              background: CARD,
+                                              border: `1px solid ${BORDER}`,
+                                              borderRadius: 14,
+                                              padding: 10,
+                                              display: "flex",
+                                              flexDirection: "column",
+                                              gap: 8,
+                                            }}
+                                          >
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                              <span style={{ fontWeight: 800, color: PRIMARY }}>
+                                                {a.criterion}
+                                              </span>
+                                              <span style={{ fontSize: 13 }}>{a.criterion_name ?? ""}</span>
+                                              <span style={{ marginLeft: "auto", fontSize: 12, color: MUTED }}>
+                                                {a.topic_name}
+                                              </span>
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                              <span style={{ fontSize: 11, color: MUTED, width: 76 }}>
+                                                Mastery {mastery}%
+                                              </span>
+                                              <div
+                                                style={{
+                                                  flex: 1,
+                                                  height: 6,
+                                                  borderRadius: 4,
+                                                  background: BORDER,
+                                                  overflow: "hidden",
+                                                }}
+                                              >
+                                                <div
+                                                  style={{
+                                                    width: `${mastery}%`,
+                                                    height: "100%",
+                                                    background: gradeColor(a.overall_1_7),
+                                                  }}
+                                                />
+                                              </div>
+                                              <span style={{ fontSize: 11, color: MUTED }}>IB {a.overall_1_7}</span>
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                              <span style={{ fontSize: 12, color: "#5A5348" }}>Score (0–8):</span>
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                max={8}
+                                                defaultValue={a.raw_score}
+                                                onBlur={(e) => {
+                                                  const v = parseInt(e.target.value, 10);
+                                                  if (!Number.isNaN(v) && v !== a.raw_score) saveScore(a, v);
+                                                }}
+                                                style={{ ...inputStyle, width: 64 }}
+                                              />
+                                              {a.confirmed && (
+                                                <span style={{ fontSize: 11, color: SUCCESS, fontWeight: 700 }}>
+                                                  confirmed
+                                                </span>
+                                              )}
+                                              <button
+                                                onClick={() => saveScore(a, a.raw_score)}
+                                                style={{ ...btn(SUCCESS), padding: "6px 10px" }}
+                                              >
+                                                Confirm
+                                              </button>
+                                              <button
+                                                onClick={() =>
+                                                  setFlagModal({ topicId: a.topic_id, topicName: a.topic_name })
+                                                }
+                                                style={{ ...btn(WARNING), padding: "6px 10px", marginLeft: "auto" }}
+                                              >
+                                                Flag for revision
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return rows;
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -440,8 +845,8 @@ export default function SubjectTeacherPortal({
 
         {/* ---- TOPIC CONTENT ---- */}
         {tab === "content" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+            <div style={{ ...card, flex: "0 0 40%", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontWeight: 700, fontFamily: DISPLAY }}>Add content</div>
               <select value={cTopic} onChange={(e) => setCTopic(e.target.value)} style={inputStyle}>
                 <option value="">Select topic…</option>
@@ -478,29 +883,50 @@ export default function SubjectTeacherPortal({
               </button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
               {content.length === 0 ? (
-                <div style={{ ...card, textAlign: "center", color: "#8A8172" }}>
+                <div style={{ ...card, textAlign: "center", color: MUTED }}>
                   No content for this subject yet.
                 </div>
               ) : (
                 content.map((c) => (
-                  <div key={c.id} style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ flex: 1 }}>
+                  <div key={c.id} style={{ ...card, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          textTransform: "uppercase",
+                          color: "#fff",
+                          background: PRIMARY,
+                          borderRadius: 6,
+                          padding: "2px 8px",
+                        }}
+                      >
+                        {c.content_type}
+                      </span>
                       <div style={{ fontWeight: 700 }}>{c.title}</div>
-                      <div style={{ fontSize: 12, color: "#8A8172" }}>
-                        {c.topic_name} · {c.content_type}
-                      </div>
                     </div>
-                    <button
-                      onClick={() => toggleContent(c)}
-                      style={{ ...btn(c.visible ? SUCCESS : "#8A8172") }}
+                    <div style={{ fontSize: 12, color: MUTED }}>{c.topic_name}</div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#5A5348",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
                     >
-                      {c.visible ? "Visible" : "Hidden"}
-                    </button>
-                    <button onClick={() => deleteContent(c)} style={btn(DANGER)}>
-                      Delete
-                    </button>
+                      {c.content}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => toggleContent(c)} style={btn(c.visible ? SUCCESS : MUTED)}>
+                        {c.visible ? "Visible" : "Hidden"}
+                      </button>
+                      <button onClick={() => deleteContent(c)} style={btn(DANGER)}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -510,138 +936,145 @@ export default function SubjectTeacherPortal({
 
         {/* ---- MYP CRITERIA ---- */}
         {tab === "criteria" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ ...card, padding: 0, overflow: "hidden" }}>
             {criteria.length === 0 ? (
-              <div style={{ ...card, textAlign: "center", color: "#8A8172" }}>
+              <div style={{ padding: 24, textAlign: "center", color: MUTED }}>
                 No criteria configured for this subject.
               </div>
             ) : (
-              criteria.map((cr) => (
-                <div key={cr.id} style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
-                  <span
-                    style={{
-                      fontWeight: 800,
-                      color: "#fff",
-                      background: PRIMARY,
-                      borderRadius: 8,
-                      padding: "4px 12px",
-                    }}
-                  >
-                    {cr.criterion}
-                  </span>
-                  <input
-                    value={critEdits[cr.id] ?? cr.criterion_name}
-                    onChange={(e) => setCritEdits((p) => ({ ...p, [cr.id]: e.target.value }))}
-                    style={{ ...inputStyle, flex: 1 }}
-                  />
-                  <button onClick={() => saveCriterion(cr)} style={btn(SUCCESS)}>
-                    Save
-                  </button>
-                </div>
-              ))
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#FBFAF7", borderBottom: `1px solid ${BORDER}` }}>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#5A5348", fontWeight: 700 }}>
+                      Criterion
+                    </th>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#5A5348", fontWeight: 700 }}>
+                      Name
+                    </th>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#5A5348", fontWeight: 700 }}>
+                      Max Score
+                    </th>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#5A5348", fontWeight: 700 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {criteria.map((cr) => (
+                    <tr key={cr.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span
+                          style={{
+                            fontWeight: 800,
+                            color: "#fff",
+                            background: PRIMARY,
+                            borderRadius: 8,
+                            padding: "4px 12px",
+                          }}
+                        >
+                          {cr.criterion}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <input
+                          value={critEdits[cr.id] ?? cr.criterion_name}
+                          onChange={(e) => setCritEdits((p) => ({ ...p, [cr.id]: e.target.value }))}
+                          style={{ ...inputStyle, width: "100%" }}
+                        />
+                      </td>
+                      <td style={{ padding: "10px 12px", color: MUTED }}>{cr.max_score}</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <button onClick={() => saveCriterion(cr)} style={btn(SUCCESS)}>
+                          Save
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}
 
         {/* ---- WALL ---- */}
-        {tab === "wall" && <Wall role="subject_teacher" subjectContext={selectedSubject} />}
-      </div>
-
-      {/* ---- DRILL MODAL ---- */}
-      {drillStudent && (
-        <div
-          onClick={() => setDrillStudent(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.35)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-            zIndex: 20,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ ...card, width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto" }}
-          >
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontFamily: DISPLAY, fontSize: 18 }}>
-                  {drillStudent.name}
-                </div>
-                <div style={{ fontSize: 12, color: "#8A8172" }}>{drillSubject}</div>
-              </div>
-              <button
-                onClick={() => setDrillStudent(null)}
-                style={{ ...btn("#8A8172"), marginLeft: "auto" }}
+        {tab === "wall" && (
+          <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 160px)" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                style={inputStyle}
               >
-                Close
+                {subjects.length === 0 && <option value="">No assigned subjects</option>}
+                {subjects.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Wall role="subject_teacher" subjectContext={selectedSubject} />
+            </div>
+          </div>
+        )}
+
+        {/* ---- SETTINGS (allowed video channels) ---- */}
+        {tab === "settings" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontWeight: 700, fontFamily: DISPLAY }}>Add allowed channel</div>
+              <input
+                value={newChannelName}
+                onChange={(e) => setNewChannelName(e.target.value)}
+                placeholder="Channel name"
+                style={inputStyle}
+              />
+              <input
+                value={newChannelKeywords}
+                onChange={(e) => setNewChannelKeywords(e.target.value)}
+                placeholder="Keywords (comma separated)"
+                style={inputStyle}
+              />
+              <button
+                onClick={addChannel}
+                disabled={channelBusy || !newChannelName.trim() || !newChannelKeywords.trim()}
+                style={{ ...btn(PRIMARY), alignSelf: "flex-start", opacity: channelBusy ? 0.6 : 1 }}
+              >
+                {channelBusy ? "Adding…" : "Add channel"}
               </button>
+              {channelError && <div style={{ fontSize: 12, color: DANGER }}>{channelError}</div>}
             </div>
 
-            {loadingDrill ? (
-              <div style={{ color: "#8A8172", padding: 16 }}>Loading…</div>
-            ) : assessments.length === 0 ? (
-              <div style={{ color: "#8A8172", padding: 16 }}>No assessments yet for this subject.</div>
+            {loadingChannels ? (
+              <div style={{ color: MUTED, padding: 24 }}>Loading channels…</div>
+            ) : channels.length === 0 ? (
+              <div style={{ ...card, textAlign: "center", color: MUTED }}>
+                No allowed channels configured yet.
+              </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {assessments.map((a) => (
-                  <div
-                    key={a.id}
-                    style={{
-                      border: `1px solid ${BORDER}`,
-                      borderRadius: 10,
-                      padding: 10,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontWeight: 800, color: PRIMARY }}>{a.criterion}</span>
-                      <span style={{ fontSize: 13 }}>{a.criterion_name ?? ""}</span>
-                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#8A8172" }}>
-                        {a.topic_name}
+                {channels.map((c) => (
+                  <div key={c.id} style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
+                    {c.added_by === null && (
+                      <span title="Default channel — cannot be removed" style={{ fontSize: 16 }}>
+                        🔒
                       </span>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700 }}>{c.channel_name}</div>
+                      <div style={{ fontSize: 12, color: MUTED }}>{c.channel_keywords}</div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "#5A5348" }}>Score (0–8):</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={8}
-                        defaultValue={a.raw_score}
-                        onBlur={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          if (!Number.isNaN(v) && v !== a.raw_score) saveScore(a, v);
-                        }}
-                        style={{ ...inputStyle, width: 64 }}
-                      />
-                      {a.confirmed && (
-                        <span style={{ fontSize: 11, color: SUCCESS, fontWeight: 700 }}>confirmed</span>
-                      )}
-                      <button
-                        onClick={() => saveScore(a, a.raw_score)}
-                        style={{ ...btn(SUCCESS), padding: "6px 10px" }}
-                      >
-                        Confirm
+                    {c.added_by !== null && (
+                      <button onClick={() => deleteChannel(c)} style={btn(DANGER)}>
+                        Delete
                       </button>
-                      <button
-                        onClick={() => setFlagModal({ topicId: a.topic_id, topicName: a.topic_name })}
-                        style={{ ...btn(WARNING), padding: "6px 10px", marginLeft: "auto" }}
-                      >
-                        Flag for revision
-                      </button>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </main>
 
       {/* ---- FLAG MODAL ---- */}
       {flagModal && (
@@ -673,7 +1106,7 @@ export default function SubjectTeacherPortal({
               style={{ ...inputStyle, resize: "vertical" }}
             />
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setFlagModal(null)} style={btn("#8A8172")}>
+              <button onClick={() => setFlagModal(null)} style={btn(MUTED)}>
                 Cancel
               </button>
               <button

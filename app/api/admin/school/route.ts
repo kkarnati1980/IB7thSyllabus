@@ -50,6 +50,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ subjects });
   }
 
+  // Grade picker source for standalone-student creation.
+  if (new URL(req.url).searchParams.get("type") === "grades") {
+    const grades = await query<{ id: string; grade: string }>(
+      "SELECT id, grade FROM grade_levels ORDER BY grade ASC"
+    );
+    return NextResponse.json({ grades });
+  }
+
   const users = await query<{
     id: string;
     name: string;

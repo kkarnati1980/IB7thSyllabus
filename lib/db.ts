@@ -82,7 +82,11 @@ export function tokenize(s: string): string[] {
   return (s.toLowerCase().match(/[a-z0-9]+/g) || []).filter((w) => w.length > 2);
 }
 
-export async function ingestFile(name: string, text: string): Promise<{ id: string; subject: string; count: number }> {
+export async function ingestFile(
+  name: string,
+  text: string,
+  gradeLevelId = "grade_7_iish"
+): Promise<{ id: string; subject: string; count: number }> {
   const titleMatch = text.match(/^#\s*(.+)/m);
   const subject = titleMatch ? titleMatch[1].split(":")[0].trim() : name.replace(/\.(md|markdown|txt)$/i, "");
   const fileId = uid("file");
@@ -97,8 +101,8 @@ export async function ingestFile(name: string, text: string): Promise<{ id: stri
       await client.query("DELETE FROM syllabus_files WHERE id = $1", [prior.rows[0].id]);
     }
     await client.query(
-      "INSERT INTO syllabus_files (id, name, subject, created_at) VALUES ($1, $2, $3, $4)",
-      [fileId, name, subject, createdAt]
+      "INSERT INTO syllabus_files (id, name, subject, grade_level_id, created_at) VALUES ($1, $2, $3, $4, $5)",
+      [fileId, name, subject, gradeLevelId, createdAt]
     );
     let count = 0;
     for (const p of parts) {
@@ -109,8 +113,8 @@ export async function ingestFile(name: string, text: string): Promise<{ id: stri
       const tf: Record<string, number> = {};
       for (const w of tokenize(p)) tf[w] = (tf[w] || 0) + 1;
       await client.query(
-        "INSERT INTO syllabus_chunks (id, file_id, file_name, heading, body, tf) VALUES ($1, $2, $3, $4, $5, $6)",
-        [uid("chunk"), fileId, name, heading, body, JSON.stringify(tf)]
+        "INSERT INTO syllabus_chunks (id, file_id, file_name, heading, body, tf, grade_level_id) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [uid("chunk"), fileId, name, heading, body, JSON.stringify(tf), gradeLevelId]
       );
       count++;
     }
@@ -165,11 +169,19 @@ export async function getSubjects(): Promise<SubjectRow[]> {
   return results;
 }
 
-export async function retrieve(query_str: string, k = 4): Promise<{ file: string; heading: string; text: string }[]> {
+export async function retrieve(
+  query_str: string,
+  k = 4,
+  gradeLevelId?: string
+): Promise<{ file: string; heading: string; text: string }[]> {
   const qt = tokenize(query_str);
   if (!qt.length) return [];
+  // Grade teachers and admins pass no gradeLevelId → they retrieve across every grade.
   const chunks = await query<{ file_name: string; heading: string; body: string; tf: string }>(
-    "SELECT file_name, heading, body, tf FROM syllabus_chunks"
+    gradeLevelId
+      ? "SELECT file_name, heading, body, tf FROM syllabus_chunks WHERE grade_level_id = $1"
+      : "SELECT file_name, heading, body, tf FROM syllabus_chunks",
+    gradeLevelId ? [gradeLevelId] : []
   );
   if (!chunks.length) return [];
   const N = chunks.length;

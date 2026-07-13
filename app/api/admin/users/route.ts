@@ -42,11 +42,12 @@ export async function POST(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { name, email, password, role } = (await req.json().catch(() => ({}))) as {
+  const { name, email, password, role, standaloneGradeId } = (await req.json().catch(() => ({}))) as {
     name?: string;
     email?: string;
     password?: string;
     role?: PublicUser["role"];
+    standaloneGradeId?: string;
   };
   if (!name || !email || !password) {
     return NextResponse.json({ error: "All fields required." }, { status: 400 });
@@ -58,11 +59,13 @@ export async function POST(req: NextRequest) {
 
   const roles: PublicUser["role"][] = ["student", "admin", "grade_teacher", "subject_teacher", "guardian"];
   const safeRole = role && roles.includes(role) ? role : "student";
+  // Standalone students carry the grade chosen at creation; other roles have none.
+  const gradeId = safeRole === "student" ? standaloneGradeId || null : null;
   const id = uid("usr");
   const { hash, salt } = hashPassword(password);
   await execute(
-    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at) VALUES ($1, $2, $3, $4, $5, $6, true, $7)",
-    [id, name.trim(), email.trim(), safeRole, hash, salt, nowIso()]
+    "INSERT INTO users (id, name, email, role, pass_hash, pass_salt, active, created_at, standalone_grade_id) VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)",
+    [id, name.trim(), email.trim(), safeRole, hash, salt, nowIso(), gradeId]
   );
   await audit("ADMIN_CREATE", `Created user: ${email} (${safeRole})`, admin.id);
 

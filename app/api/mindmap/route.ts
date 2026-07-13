@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
+import { getUserGradeId } from "@/lib/school";
 import { getClient, MODEL, messageText, parseJson } from "@/lib/anthropic";
-import { mindMapSystemPrompt, topicContext } from "@/lib/prompts";
+import { mindMapSystemPrompt } from "@/lib/prompts";
 import type { MindMap } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
     subject?: string;
     topic?: string;
   };
-  const chunks = topic ? await retrieve(topic) : [];
+  const gradeId = await getUserGradeId(user.id);
+  const isTeacher = ["subject_teacher", "grade_teacher"].includes(user.role);
+  const chunks = topic ? await retrieve(topic, 4, gradeId) : [];
   const ragCtx = chunks.map((c) => c.text).join("\n");
 
   try {
@@ -24,7 +27,7 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1000,
-      system: mindMapSystemPrompt(topicContext(subject || "", topic || ""), ragCtx),
+      system: mindMapSystemPrompt(subject || "", topic || "", ragCtx, gradeId ?? "grade_7_iish", isTeacher),
       messages: [{ role: "user", content: "Generate the mind map." }],
     });
     const data = parseJson<MindMap>(messageText(message));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, type User } from "@/lib/auth";
 import { execute, nowIso, query, queryOne, uid } from "@/lib/db";
+import { getClient, messageText, parseJson } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 
@@ -100,6 +101,41 @@ export async function POST(req: NextRequest) {
     if (!(await ownsSubject(user, subjectName))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    // AI moderation for free-text content. image/video URLs are already scheme-checked above.
+    if (contentType === "text") {
+      let approved = true;
+      let reason = "";
+      try {
+        const client = getClient();
+        const msg = await client.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 200,
+          system: `You are a content-safety moderator for an IB MYP Grade 7 classroom. Decide whether the submitted teaching content is (a) appropriate for Grade 7 IB MYP students and (b) relevant to the topic "${topicName}" in the subject "${subjectName}". Respond with ONLY a JSON object: {"approved": boolean, "reason": string}. If rejecting, the reason must briefly explain why.`,
+          messages: [{ role: "user", content: `Title: ${title}\n\nContent:\n${content}` }],
+        });
+        const verdict = parseJson<{ approved?: boolean; reason?: string }>(messageText(msg));
+        if (verdict && typeof verdict.approved === "boolean") {
+          approved = verdict.approved;
+          reason = verdict.reason || "";
+        }
+      } catch (e) {
+        // Fail open: never block an authenticated teacher because the moderator API hiccupped.
+        console.error("content moderation failed — allowing by default", e);
+      }
+      await execute(
+        `INSERT INTO content_moderation_log (id, content_type, content_preview, decision, reason, submitted_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [uid("mod"), contentType, content.slice(0, 200), approved ? "approved" : "rejected", reason, user.id, nowIso()]
+      );
+      if (!approved) {
+        return NextResponse.json(
+          { error: reason || "This content was not approved by the moderator." },
+          { status: 422 }
+        );
+      }
+    }
+
     await execute(
       `INSERT INTO teacher_content (id, subject_name, topic_name, content_type, content, title, added_by, visible, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)`,

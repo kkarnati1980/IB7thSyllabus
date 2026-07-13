@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
+import { getUserGradeId } from "@/lib/school";
 import { getClient, MODEL, messageText, parseJson } from "@/lib/anthropic";
-import { flashcardsSystemPrompt, topicContext } from "@/lib/prompts";
+import { flashcardsSystemPrompt } from "@/lib/prompts";
 import type { Flashcard } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
     subject?: string;
     topic?: string;
   };
-  const chunks = topic ? await retrieve(`${topic} vocabulary`) : [];
+  const gradeId = await getUserGradeId(user.id);
+  const isTeacher = ["subject_teacher", "grade_teacher"].includes(user.role);
+  const chunks = topic ? await retrieve(`${topic} vocabulary`, 4, gradeId) : [];
   const ragCtx = chunks.map((c) => c.text).join("\n");
 
   try {
@@ -24,7 +27,7 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1600,
-      system: flashcardsSystemPrompt(topicContext(subject || "", topic || ""), ragCtx),
+      system: flashcardsSystemPrompt(subject || "", topic || "", ragCtx, gradeId ?? "grade_7_iish", isTeacher),
       messages: [{ role: "user", content: "Generate flashcards." }],
     });
     const data = parseJson<Flashcard[] | { flashcards: Flashcard[] }>(messageText(message));

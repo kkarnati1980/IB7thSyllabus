@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
+import { getUserGradeId } from "@/lib/school";
 import { getClient, MODEL, messageText, parseJson } from "@/lib/anthropic";
-import { quizSystemPrompt, topicContext } from "@/lib/prompts";
+import { quizSystemPrompt } from "@/lib/prompts";
 import type { QuizItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
     subject?: string;
     topic?: string;
   };
-  const chunks = topic ? await retrieve(`${topic} quiz`) : [];
+  const gradeId = await getUserGradeId(user.id);
+  const isTeacher = ["subject_teacher", "grade_teacher"].includes(user.role);
+  const chunks = topic ? await retrieve(`${topic} quiz`, 4, gradeId) : [];
   const ragCtx = chunks.map((c) => c.text).join("\n");
 
   try {
@@ -24,7 +27,7 @@ export async function POST(req: NextRequest) {
     const message = await client.messages.create({
       model: MODEL,
       max_tokens: 1800,
-      system: quizSystemPrompt(topicContext(subject || "", topic || ""), ragCtx),
+      system: quizSystemPrompt(subject || "", topic || "", ragCtx, gradeId ?? "grade_7_iish", isTeacher),
       messages: [{ role: "user", content: "Generate the quiz now." }],
     });
     const data = parseJson<QuizItem[] | { questions: QuizItem[] }>(messageText(message));
