@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PublicUser } from "@/lib/types";
 
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
-type TabKey = "users" | "audit" | "config" | "images";
+type TabKey = "users" | "audit" | "config" | "grades" | "images";
 type AuditRow = { action: string; detail: string; at: string };
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
@@ -173,6 +173,7 @@ export default function AdminPortal({
         <button onClick={() => setTab("users")} style={tabStyle(tab === "users")}>👥 Users</button>
         <button onClick={() => { setTab("audit"); refreshAudit(); }} style={tabStyle(tab === "audit")}>📋 Audit Log</button>
         <button onClick={() => setTab("config")} style={tabStyle(tab === "config")}>⚙️ Config & API Keys</button>
+        <button onClick={() => setTab("grades")} style={tabStyle(tab === "grades")}>📚 Grades & KB</button>
         <button onClick={() => setTab("images")} style={tabStyle(tab === "images")}>🖼 Topic Images</button>
       </div>
 
@@ -302,107 +303,257 @@ export default function AdminPortal({
       )}
 
       {tab === "config" && <ConfigTab />}
+      {tab === "grades" && <GradesKbTab />}
       {tab === "images" && <ImagesTab />}
     </div>
   );
 }
 
-/* ===== CONFIG TAB ===== */
+/* ===== CONFIG TAB (dynamic LLM manager) ===== */
+type LlmConfig = { purpose: string; provider: string; modelName: string; apiKeyMasked: string; hasKey: boolean; baseUrl?: string; active: boolean; updatedAt: string };
+
+const PURPOSES: { value: string; label: string; desc: string }[] = [
+  { value: "chat", label: "Chat", desc: "AI Tutor & content generation (Jarvis conversations, quiz, flashcards, mindmap)" },
+  { value: "image_generation", label: "Image generation", desc: "Topic image generation (DALL-E, Stable Diffusion, etc.)" },
+  { value: "voice_tts", label: "Voice / TTS", desc: "Text-to-speech voice for Jarvis (ElevenLabs, OpenAI TTS, etc.)" },
+  { value: "moderation", label: "Moderation", desc: "Content moderation before teacher content is saved" },
+];
+
+// provider values stored simple/lowercased; label is for display
+const PROVIDER_MODELS: Record<string, { provider: string; label: string; models: string[] }[]> = {
+  chat: [
+    { provider: "anthropic", label: "Anthropic", models: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"] },
+    { provider: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"] },
+    { provider: "google", label: "Google", models: ["gemini-1.5-pro", "gemini-1.5-flash"] },
+  ],
+  image_generation: [
+    { provider: "openai", label: "OpenAI", models: ["gpt-image-1", "dall-e-3", "dall-e-2"] },
+    { provider: "stability", label: "Stability AI", models: ["stable-diffusion-xl-1024-v1-0"] },
+    { provider: "google", label: "Google", models: ["imagen-3.0-generate-001"] },
+  ],
+  voice_tts: [
+    { provider: "elevenlabs", label: "ElevenLabs", models: ["eleven_turbo_v2", "eleven_multilingual_v2", "eleven_monolingual_v1"] },
+    { provider: "openai", label: "OpenAI", models: ["tts-1", "tts-1-hd"] },
+    { provider: "google", label: "Google", models: ["google-tts-standard", "google-tts-wavenet"] },
+  ],
+  moderation: [
+    { provider: "anthropic", label: "Anthropic", models: ["claude-haiku-4-5-20251001", "claude-sonnet-4-6"] },
+    { provider: "openai", label: "OpenAI", models: ["gpt-4o-mini", "omni-moderation-latest"] },
+  ],
+};
+
+const SAVED_TEXT = "already saved — paste new key to update";
+const providerLabel = (p: string) => {
+  for (const list of Object.values(PROVIDER_MODELS)) {
+    const hit = list.find((x) => x.provider === p);
+    if (hit) return hit.label;
+  }
+  return p;
+};
+
 function ConfigTab() {
-  const [elKey, setElKey] = useState("••• loading…");
-  const [openaiKey, setOpenaiKey] = useState("••• loading…");
-  const [elLoaded, setElLoaded] = useState(false);
-  const [openaiLoaded, setOpenaiLoaded] = useState(false);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [configs, setConfigs] = useState<LlmConfig[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  // edit panel state
+  const [purpose, setPurpose] = useState("chat");
+  const [provider, setProvider] = useState("anthropic");
+  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [hasKey, setHasKey] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; message: string } | null>(null);
+
   const [voices, setVoices] = useState<{ id: string; name: string; category: string; gender: string }[]>([]);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voiceError, setVoiceError] = useState("");
 
-  // Load existing key status on mount (we show whether they're set, not the actual value)
-  useEffect(() => {
-    fetch("/api/config?key=elevenlabs_api_key")
-      .then((r) => r.json())
-      .then((j) => {
-        setElKey(j.value ? "already saved — paste new key to update" : "");
-        setElLoaded(true);
-      });
-    fetch("/api/config?key=openai_api_key")
-      .then((r) => r.json())
-      .then((j) => {
-        setOpenaiKey(j.value ? "already saved — paste new key to update" : "");
-        setOpenaiLoaded(true);
-      });
-  }, []);
+  async function loadConfigs() {
+    const res = await fetch("/api/admin/llm-config");
+    const j = await res.json().catch(() => ({ configs: [] }));
+    setConfigs(j.configs || []);
+    setLoaded(true);
+  }
+  useEffect(() => { loadConfigs(); }, []);
 
-  async function saveKey(key: string, value: string) {
-    const clean = value.trim();
-    // Don't save if user hasn't changed the placeholder text
-    if (!clean || clean.startsWith("already saved") || clean.startsWith("•••")) return;
-    setSaving(key);
-    await fetch("/api/config", {
+  const providersFor = PROVIDER_MODELS[purpose] || [];
+  const modelsFor = providersFor.find((p) => p.provider === provider)?.models || [];
+
+  // when purpose changes, default provider/model + pull any saved config for that purpose
+  function selectPurpose(p: string, existing?: LlmConfig) {
+    setPurpose(p);
+    setTestMsg(null); setVoices([]); setVoiceError(""); setSaved(false);
+    const list = PROVIDER_MODELS[p] || [];
+    const prov = existing?.provider && list.some((x) => x.provider === existing.provider) ? existing.provider : (list[0]?.provider || "");
+    setProvider(prov);
+    const models = list.find((x) => x.provider === prov)?.models || [];
+    setModel(existing?.modelName && models.includes(existing.modelName) ? existing.modelName : (models[0] || ""));
+    setBaseUrl(existing?.baseUrl || "");
+    setHasKey(!!existing?.hasKey);
+    setApiKey(existing?.hasKey ? SAVED_TEXT : "");
+  }
+
+  function changeProvider(prov: string) {
+    setProvider(prov);
+    const models = (PROVIDER_MODELS[purpose] || []).find((x) => x.provider === prov)?.models || [];
+    setModel(models[0] || "");
+    setTestMsg(null); setVoices([]); setVoiceError("");
+  }
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    // send apiKey only when the admin typed a new one; empty string preserves the saved key
+    const typedKey = apiKey && !apiKey.startsWith("already saved") ? apiKey.trim() : "";
+    await fetch("/api/admin/llm-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, value: clean }),
+      body: JSON.stringify({ purpose, provider, modelName: model, apiKey: typedKey, baseUrl: baseUrl.trim() || undefined }),
     });
-    setSaving(null);
-    setSaved(key);
-    if (key === "elevenlabs_api_key") setElKey("already saved — paste new key to update");
-    if (key === "openai_api_key") setOpenaiKey("already saved — paste new key to update");
-    setTimeout(() => setSaved(null), 3000);
+    setSaving(false); setSaved(true);
+    setApiKey(SAVED_TEXT); setHasKey(true);
+    await loadConfigs();
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  async function testConnection() {
+    setTesting(true); setTestMsg(null);
+    const res = await fetch("/api/admin/llm-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test", purpose }),
+    });
+    const j = await res.json().catch(() => ({ ok: false, message: "Test failed." }));
+    setTestMsg({ ok: !!j.ok, message: j.message || (j.ok ? "OK" : "Test failed.") });
+    setTesting(false);
   }
 
   async function testVoices() {
-    setVoicesLoading(true);
-    setVoiceError("");
+    setVoicesLoading(true); setVoiceError(""); setVoices([]);
     const res = await fetch("/api/elevenlabs/voices");
-    const j = await res.json();
+    const j = await res.json().catch(() => ({}));
     if (j.voices?.length) setVoices(j.voices);
-    else setVoiceError(j.error || "No voices returned. Check your API key is saved correctly.");
+    else setVoiceError(j.error || "No voices returned. Check the API key is saved correctly.");
     setVoicesLoading(false);
   }
 
-  const keyInput = (placeholder: string, value: string, onChange: (v: string) => void, loaded: boolean): React.CSSProperties => ({
-    flex: 1, border: "1px solid #E0D9CC", borderRadius: 10, padding: "11px 13px", fontSize: 14,
-    color: value.startsWith("already saved") ? "#2E9E6B" : "#23201B",
-    background: loaded ? "#fff" : "#F6F3EC",
-  });
+  async function removeConfig(p: string) {
+    if (!window.confirm(`Remove the ${p} LLM configuration?`)) return;
+    await fetch(`/api/admin/llm-config?purpose=${encodeURIComponent(p)}`, { method: "DELETE" });
+    await loadConfigs();
+  }
+
+  const th: React.CSSProperties = { textAlign: "left", fontSize: 11, fontWeight: 800, color: "#8A8172", textTransform: "uppercase", letterSpacing: ".05em", padding: "10px 14px", borderBottom: "1px solid #E7E1D6" };
+  const td: React.CSSProperties = { fontSize: 13, padding: "12px 14px", borderBottom: "1px solid #F5F0E8", verticalAlign: "top" };
+  const purposeDesc = PURPOSES.find((p) => p.value === purpose)?.desc || "";
 
   return (
-    <div style={{ padding: "24px 32px", maxWidth: 800 }}>
+    <div style={{ padding: "24px 32px" }}>
       <h2 style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 26, margin: "0 0 6px" }}>Config & API Keys</h2>
-      <p style={{ color: "#6B6459", fontSize: 15, margin: "0 0 28px" }}>Keys are stored securely in the database and never exposed to students.</p>
+      <p style={{ color: "#6B6459", fontSize: 15, margin: "0 0 24px" }}>Configure which LLM provider and model powers each part of Jarvis. Keys are stored securely and never exposed to students.</p>
 
-      {/* ElevenLabs */}
-      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 24, marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 22 }}>🎙</span>
-          <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17 }}>ElevenLabs API Key</div>
-          <span style={{ fontSize: 12, background: "#ECEBFB", color: "#4C43D9", borderRadius: 20, padding: "3px 10px", fontWeight: 700 }}>Required for voice</span>
+      {/* Config table */}
+      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, overflow: "hidden", marginBottom: 24 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={th}>Purpose</th>
+              <th style={th}>Provider</th>
+              <th style={th}>Model</th>
+              <th style={th}>Key status</th>
+              <th style={th}>Last updated</th>
+              <th style={{ ...th, textAlign: "right" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {PURPOSES.map((p) => {
+              const cfg = configs.find((c) => c.purpose === p.value);
+              return (
+                <tr key={p.value}>
+                  <td style={td}>
+                    <div style={{ fontWeight: 700 }}>{p.label}</div>
+                    <div style={{ fontSize: 11, color: "#8A8172", maxWidth: 320 }}>{p.desc}</div>
+                  </td>
+                  <td style={td}>{cfg ? providerLabel(cfg.provider) : <span style={{ color: "#A79E8E" }}>—</span>}</td>
+                  <td style={td}>{cfg ? cfg.modelName : <span style={{ color: "#A79E8E" }}>Not configured</span>}</td>
+                  <td style={td}>
+                    {cfg?.hasKey
+                      ? <span style={{ color: "#2E9E6B", fontWeight: 700 }}>✓ {cfg.apiKeyMasked || "saved"}</span>
+                      : <span style={{ color: "#C0392B", fontWeight: 700 }}>No key</span>}
+                  </td>
+                  <td style={{ ...td, color: "#A79E8E", fontSize: 12 }}>{cfg?.updatedAt ? cfg.updatedAt.replace("T", " ").slice(0, 16) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button onClick={() => selectPurpose(p.value, cfg)} style={{ background: "#ECEBFB", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#4C43D9" }}>Edit</button>
+                    {cfg && <button onClick={() => removeConfig(p.value)} style={{ background: "#FDECEA", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#C0392B", marginLeft: 6 }}>Delete</button>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {!loaded && <div style={{ padding: 16, color: "#8A8172", fontSize: 13 }}>Loading…</div>}
+      </div>
+
+      {/* Edit panel */}
+      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 24, maxWidth: 760 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Edit configuration</div>
+        <p style={{ fontSize: 13, color: "#8A8172", margin: "0 0 16px" }}>{purposeDesc}</p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={smallLabel}>Purpose</label>
+            <select value={purpose} onChange={(e) => selectPurpose(e.target.value, configs.find((c) => c.purpose === e.target.value))} style={{ ...panelInput, background: "#fff", marginBottom: 0 }}>
+              {PURPOSES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={smallLabel}>Provider</label>
+            <select value={provider} onChange={(e) => changeProvider(e.target.value)} style={{ ...panelInput, background: "#fff", marginBottom: 0 }}>
+              {providersFor.map((p) => <option key={p.provider} value={p.provider}>{p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={smallLabel}>Model</label>
+            <select value={model} onChange={(e) => setModel(e.target.value)} style={{ ...panelInput, background: "#fff", marginBottom: 0 }}>
+              {modelsFor.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
         </div>
-        <p style={{ fontSize: 13, color: "#8A8172", margin: "0 0 14px" }}>Get your key from elevenlabs.io → Profile → API Keys. Students choose their own voice once this is set.</p>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            value={elKey}
-            onChange={(e) => setElKey(e.target.value)}
-            onFocus={() => { if (elKey.startsWith("already saved")) setElKey(""); }}
-            placeholder="sk_..."
-            style={keyInput("sk_...", elKey, setElKey, elLoaded)}
-          />
-          <button onClick={() => saveKey("elevenlabs_api_key", elKey)} disabled={saving === "elevenlabs_api_key"}
-            style={{ background: saved === "elevenlabs_api_key" ? "#2E9E6B" : "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "0 20px", fontWeight: 700, cursor: "pointer", fontSize: 14, minWidth: 80 }}>
-            {saving === "elevenlabs_api_key" ? "Saving…" : saved === "elevenlabs_api_key" ? "✓ Saved" : "Save"}
+
+        <label style={smallLabel}>API key</label>
+        <input
+          value={apiKey}
+          type="password"
+          onChange={(e) => setApiKey(e.target.value)}
+          onFocus={() => { if (apiKey.startsWith("already saved")) setApiKey(""); }}
+          placeholder={hasKey ? SAVED_TEXT : "Paste API key"}
+          style={{ ...panelInput, color: apiKey.startsWith("already saved") ? "#2E9E6B" : "#23201B" }}
+        />
+
+        <label style={smallLabel}>Base URL (optional)</label>
+        <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://… (leave blank for provider default)" style={panelInput} />
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={save} disabled={saving} style={{ background: saved ? "#2E9E6B" : "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "10px 22px", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+            {saving ? "Saving…" : saved ? "✓ Saved" : "Save"}
           </button>
-        </div>
-        <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
-          <button onClick={testVoices} disabled={voicesLoading}
-            style={{ background: "#F1ECE2", border: "none", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#4C43D9" }}>
-            {voicesLoading ? "Loading…" : "Test connection & list voices"}
+          <button onClick={testConnection} disabled={testing} style={{ background: "#F1ECE2", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#4C43D9" }}>
+            {testing ? "Testing…" : "Test connection"}
           </button>
+          {purpose === "voice_tts" && provider === "elevenlabs" && (
+            <button onClick={testVoices} disabled={voicesLoading} style={{ background: "#F1ECE2", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer", color: "#4C43D9" }}>
+              {voicesLoading ? "Loading…" : "Test & list voices"}
+            </button>
+          )}
+          {testMsg && <span style={{ color: testMsg.ok ? "#2E9E6B" : "#C0392B", fontSize: 13, fontWeight: 600 }}>{testMsg.ok ? "✓ " : "✗ "}{testMsg.message}</span>}
           {voiceError && <span style={{ color: "#C0392B", fontSize: 13, fontWeight: 600 }}>{voiceError}</span>}
         </div>
+
         {voices.length > 0 && (
-          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+          <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
             {voices.map((v) => (
               <div key={v.id} style={{ background: "#F6F3EC", borderRadius: 10, padding: "10px 12px", fontSize: 13 }}>
                 <div style={{ fontWeight: 700 }}>{v.name}</div>
@@ -413,30 +564,334 @@ function ConfigTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* OpenAI */}
-      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontSize: 22 }}>🎨</span>
-          <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17 }}>OpenAI API Key</div>
-          <span style={{ fontSize: 12, background: "#E4F3EC", color: "#1E7A50", borderRadius: 20, padding: "3px 10px", fontWeight: 700 }}>Optional — for AI image generation</span>
+/* ===== GRADES & KNOWLEDGE BASE TAB ===== */
+type Grade = { id: string; grade: string; displayName: string; description: string; schoolId: string; schoolName: string; fileCount: number; studentCount: number };
+type KbFile = { id: string; name: string; subject: string; shortName: string; count: number };
+
+function GradesKbTab() {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [gradesError, setGradesError] = useState("");
+  const [selected, setSelected] = useState<Grade | null>(null);
+
+  // add-grade form
+  const [newDisplay, setNewDisplay] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // inline grade edit
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editDisplay, setEditDisplay] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  async function loadGrades() {
+    const res = await fetch("/api/admin/grades");
+    const j = await res.json().catch(() => ({ grades: [] }));
+    setGrades(j.grades || []);
+  }
+  useEffect(() => { loadGrades(); }, []);
+
+  // school defaults come from an existing grade, else fall back
+  const school = grades[0]
+    ? { id: grades[0].schoolId, name: grades[0].schoolName }
+    : { id: "school_iish", name: "IISH" };
+
+  async function createGrade() {
+    if (!newDisplay.trim() || !newCode.trim()) { setGradesError("Display name and grade code are required."); return; }
+    setCreating(true); setGradesError("");
+    const res = await fetch("/api/admin/grades", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grade: newCode.trim(), displayName: newDisplay.trim(), description: newDesc.trim(), schoolId: school.id }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setCreating(false);
+    if (!res.ok) { setGradesError(j.error || "Could not create grade."); return; }
+    setNewDisplay(""); setNewCode(""); setNewDesc("");
+    loadGrades();
+  }
+
+  function startEdit(g: Grade) { setEditId(g.id); setEditDisplay(g.displayName); setEditDesc(g.description); }
+  async function saveEdit() {
+    if (!editId) return;
+    const res = await fetch("/api/admin/grades", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: editId, displayName: editDisplay, description: editDesc }),
+    });
+    if (res.ok) { setEditId(null); loadGrades(); }
+  }
+
+  async function deleteGrade(g: Grade) {
+    if (!window.confirm(`Delete ${g.displayName}? This cannot be undone.`)) return;
+    const res = await fetch(`/api/admin/grades?id=${encodeURIComponent(g.id)}`, { method: "DELETE" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { setGradesError(j.error || "Could not delete grade."); return; }
+    if (selected?.id === g.id) setSelected(null);
+    setGradesError("");
+    loadGrades();
+  }
+
+  return (
+    <div style={{ padding: "24px 32px" }}>
+      <h2 style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 26, margin: "0 0 6px" }}>Grades & Knowledge Base</h2>
+      <p style={{ color: "#6B6459", fontSize: 15, margin: "0 0 24px" }}>Manage grades and the syllabus knowledge base Jarvis draws on for each grade.</p>
+
+      {gradesError && <div style={{ background: "#FDECEA", color: "#C0392B", fontSize: 13, fontWeight: 600, padding: "9px 12px", borderRadius: 10, marginBottom: 16 }}>{gradesError}</div>}
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(340px, 1fr) minmax(360px, 1.3fr)", gap: 24, alignItems: "start" }}>
+        {/* LEFT — grade management */}
+        <div>
+          <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid #E7E1D6", fontFamily: DISPLAY, fontWeight: 700, fontSize: 16 }}>Grades</div>
+            {grades.length === 0 && <div style={{ padding: 20, color: "#8A8172", fontSize: 13 }}>No grades yet. Add one below.</div>}
+            {grades.map((g) => (
+              <div key={g.id} style={{ borderBottom: "1px solid #F5F0E8", padding: "16px 20px", background: selected?.id === g.id ? "#F3F1FB" : "transparent" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 20 }}>{g.displayName}</div>
+                    <div style={{ fontSize: 12, color: "#8A8172", marginTop: 2 }}>{g.schoolName} · Grade {g.grade}</div>
+                    {editId === g.id ? (
+                      <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description" style={{ ...panelInput, marginTop: 8, marginBottom: 0, minHeight: 54, resize: "vertical" }} />
+                    ) : (
+                      g.description && <div style={{ fontSize: 13, color: "#5A5347", marginTop: 6 }}>{g.description}</div>
+                    )}
+                    <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12, color: "#6B6459" }}>
+                      <span><strong>{g.studentCount}</strong> students</span>
+                      <span><strong>{g.fileCount}</strong> KB files</span>
+                    </div>
+                  </div>
+                </div>
+                {editId === g.id && (
+                  <div style={{ marginTop: 8 }}>
+                    <label style={smallLabel}>Display name</label>
+                    <input value={editDisplay} onChange={(e) => setEditDisplay(e.target.value)} style={panelInput} />
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <button onClick={() => setSelected(g)} style={{ background: "#4C43D9", color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Manage KB</button>
+                  {editId === g.id ? (
+                    <>
+                      <button onClick={saveEdit} style={{ background: "#ECEBFB", color: "#4C43D9", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                      <button onClick={() => setEditId(null)} style={{ background: "#F1ECE2", color: "#5A5347", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+                    </>
+                  ) : (
+                    <button onClick={() => startEdit(g)} style={{ background: "#ECEBFB", color: "#4C43D9", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Edit</button>
+                  )}
+                  <button
+                    onClick={() => deleteGrade(g)}
+                    disabled={g.fileCount > 0 || g.studentCount > 0}
+                    title={g.fileCount > 0 || g.studentCount > 0 ? "Remove all files and students before deleting" : "Delete grade"}
+                    style={{ background: "#FDECEA", color: "#C0392B", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: g.fileCount > 0 || g.studentCount > 0 ? "not-allowed" : "pointer", opacity: g.fileCount > 0 || g.studentCount > 0 ? 0.5 : 1 }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Add grade */}
+          <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 22 }}>
+            <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Add grade</div>
+            <label style={smallLabel}>Display name</label>
+            <input value={newDisplay} onChange={(e) => setNewDisplay(e.target.value)} placeholder="Grade 7" style={panelInput} />
+            <label style={smallLabel}>Grade code</label>
+            <input value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="7" style={panelInput} />
+            <label style={smallLabel}>Description (optional)</label>
+            <input value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="IB MYP Year 2" style={panelInput} />
+            <label style={smallLabel}>School</label>
+            <input value={school.name} disabled style={{ ...panelInput, background: "#F6F3EC", color: "#8A8172" }} />
+            <button onClick={createGrade} disabled={creating} style={{ width: "100%", background: "#4C43D9", color: "#fff", border: "none", borderRadius: 12, padding: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+              {creating ? "Creating…" : "Create grade"}
+            </button>
+          </div>
         </div>
-        <p style={{ fontSize: 13, color: "#8A8172", margin: "0 0 6px" }}>Required only for DALL-E generated topic images. Your OpenAI account must have DALL-E 3 access (available on paid tier).</p>
-        <p style={{ fontSize: 12, color: "#E8823A", margin: "0 0 14px", fontWeight: 600 }}>⚠ Web search images work without this key and are recommended for getting started.</p>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            value={openaiKey}
-            onChange={(e) => setOpenaiKey(e.target.value)}
-            onFocus={() => { if (openaiKey.startsWith("already saved")) setOpenaiKey(""); }}
-            placeholder="sk-..."
-            style={keyInput("sk-...", openaiKey, setOpenaiKey, openaiLoaded)}
-          />
-          <button onClick={() => saveKey("openai_api_key", openaiKey)} disabled={saving === "openai_api_key"}
-            style={{ background: saved === "openai_api_key" ? "#2E9E6B" : "#2E9E6B", color: "#fff", border: "none", borderRadius: 10, padding: "0 20px", fontWeight: 700, cursor: "pointer", fontSize: 14, minWidth: 80 }}>
-            {saving === "openai_api_key" ? "Saving…" : saved === "openai_api_key" ? "✓ Saved" : "Save"}
-          </button>
+
+        {/* RIGHT — KB files for selected grade */}
+        <div>
+          {!selected ? (
+            <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 40, textAlign: "center", color: "#8A8172" }}>
+              <div style={{ fontSize: 32 }}>📚</div>
+              <div style={{ fontWeight: 600, marginTop: 8 }}>Select a grade to manage its knowledge base.</div>
+            </div>
+          ) : (
+            <KbPanel grade={selected} onGradesChanged={loadGrades} />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function KbPanel({ grade, onGradesChanged }: { grade: Grade; onGradesChanged: () => void }) {
+  const [files, setFiles] = useState<KbFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [error, setError] = useState("");
+  const [pdf, setPdf] = useState<File | null>(null);
+
+  // auto-source modal
+  const [autoFor, setAutoFor] = useState<KbFile | null>(null);
+  const [optImages, setOptImages] = useState(true);
+  const [optVideos, setOptVideos] = useState(true);
+  const [optAiImages, setOptAiImages] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoResult, setAutoResult] = useState<{ imagesFound: number; videosFound: number; headingsProcessed: number; truncated: boolean } | null>(null);
+
+  async function loadFiles() {
+    setLoading(true);
+    const res = await fetch(`/api/admin/kb?gradeId=${encodeURIComponent(grade.id)}`);
+    const j = await res.json().catch(() => ({ files: [] }));
+    setFiles(j.files || []);
+    setLoading(false);
+  }
+  useEffect(() => { loadFiles(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [grade.id]);
+
+  async function uploadPdf() {
+    if (!pdf) { setError("Choose a PDF first."); return; }
+    setUploading(true); setError(""); setUploadStatus("Converting to knowledge base…");
+    const fd = new FormData();
+    fd.append("file", pdf);
+    fd.append("gradeId", grade.id);
+    const res = await fetch("/api/admin/kb", { method: "POST", body: fd });
+    const j = await res.json().catch(() => ({ status: "failed", error: "Upload failed." }));
+    setUploading(false);
+    if (!res.ok || j.status === "failed") { setError(j.error || "Upload failed."); setUploadStatus(""); return; }
+    setUploadStatus(`✓ ${j.fileName || pdf.name} — ${j.chunksCreated ?? 0} sections created.`);
+    setPdf(null);
+    loadFiles(); onGradesChanged();
+  }
+
+  async function uploadMd(file: File) {
+    setUploading(true); setError(""); setUploadStatus("Uploading markdown…");
+    const text = await file.text();
+    const res = await fetch("/api/syllabus", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: [{ name: file.name, text }], gradeLevelId: grade.id }),
+    });
+    setUploading(false);
+    if (!res.ok) { const j = await res.json().catch(() => ({})); setError(j.error || "Markdown upload failed."); setUploadStatus(""); return; }
+    setUploadStatus(`✓ ${file.name} uploaded.`);
+    loadFiles(); onGradesChanged();
+  }
+
+  async function deleteFile(id: string) {
+    if (!window.confirm("Delete this knowledge base file?")) return;
+    await fetch(`/api/admin/kb?fileId=${encodeURIComponent(id)}`, { method: "DELETE" });
+    loadFiles(); onGradesChanged();
+  }
+
+  async function runAutoSource() {
+    if (!autoFor) return;
+    setAutoRunning(true); setAutoResult(null);
+    const res = await fetch("/api/admin/kb/auto-source", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId: autoFor.id, options: { images: optImages, videos: optVideos, aiImages: optAiImages } }),
+    });
+    const j = await res.json().catch(() => ({ imagesFound: 0, videosFound: 0, headingsProcessed: 0, truncated: false }));
+    setAutoResult(j);
+    setAutoRunning(false);
+  }
+
+  const th: React.CSSProperties = { textAlign: "left", fontSize: 11, fontWeight: 800, color: "#8A8172", textTransform: "uppercase", letterSpacing: ".05em", padding: "10px 14px", borderBottom: "1px solid #E7E1D6" };
+  const td: React.CSSProperties = { fontSize: 13, padding: "12px 14px", borderBottom: "1px solid #F5F0E8", verticalAlign: "top" };
+
+  return (
+    <div>
+      <div style={{ background: "#F3F1FB", borderRadius: 12, padding: "10px 14px", marginBottom: 16, fontSize: 14 }}>
+        <strong>Knowledge base for:</strong> {grade.displayName} <span style={{ color: "#8A8172" }}>({grade.schoolName})</span>
+      </div>
+
+      {/* Upload card */}
+      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 22, marginBottom: 20 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>📄 Upload Syllabus PDF</div>
+        <p style={{ fontSize: 13, color: "#8A8172", margin: "0 0 14px" }}>Jarvis will convert it to a structured knowledge base automatically using the configured Chat LLM.</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input type="file" accept=".pdf" onChange={(e) => setPdf(e.target.files?.[0] ?? null)} style={{ fontSize: 13 }} />
+          <button onClick={uploadPdf} disabled={uploading || !pdf} style={{ background: "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, cursor: uploading || !pdf ? "not-allowed" : "pointer", fontSize: 13, opacity: uploading || !pdf ? 0.6 : 1 }}>
+            {uploading ? "Working…" : "Upload & Convert"}
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: "#A79E8E", marginTop: 8 }}>Max 10MB per file.</div>
+
+        <div style={{ borderTop: "1px solid #F1ECE2", marginTop: 16, paddingTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#5A5347", marginBottom: 8 }}>Or upload a .md file directly</div>
+          <input type="file" accept=".md" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMd(f); e.target.value = ""; }} style={{ fontSize: 13 }} />
+        </div>
+
+        {uploadStatus && <div style={{ marginTop: 12, color: "#1E7A50", fontSize: 13, fontWeight: 600 }}>{uploading ? "⏳ " : ""}{uploadStatus}</div>}
+        {error && <div style={{ marginTop: 12, color: "#C0392B", fontSize: 13, fontWeight: 600, background: "#FDECEA", padding: "10px 14px", borderRadius: 10 }}>{error}</div>}
+      </div>
+
+      {/* Files table */}
+      <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E7E1D6", fontFamily: DISPLAY, fontWeight: 700, fontSize: 16 }}>Knowledge base files</div>
+        {loading && <div style={{ padding: 20, color: "#8A8172", fontSize: 13 }}>Loading…</div>}
+        {!loading && files.length === 0 && <div style={{ padding: 20, color: "#8A8172", fontSize: 13 }}>No files yet for this grade.</div>}
+        {files.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th style={th}>File</th>
+                  <th style={th}>Short name</th>
+                  <th style={th}>Sections</th>
+                  <th style={{ ...th, textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {files.map((f) => (
+                  <tr key={f.id}>
+                    <td style={td}>
+                      <div style={{ fontWeight: 700 }}>{f.name}</div>
+                      <div style={{ fontSize: 11, color: "#8A8172" }}>{f.subject}</div>
+                    </td>
+                    <td style={td}>{f.shortName}</td>
+                    <td style={td}>{f.count}</td>
+                    <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                      <button onClick={() => { setAutoFor(f); setAutoResult(null); }} style={{ background: "#ECEBFB", color: "#4C43D9", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Auto-source resources</button>
+                      <button onClick={() => deleteFile(f.id)} style={{ background: "#FDECEA", color: "#C0392B", border: "none", borderRadius: 9, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: 6 }}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Auto-source modal */}
+      {autoFor && (
+        <div onClick={() => setAutoFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(35,32,27,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 24, maxWidth: 420, width: "100%" }}>
+            <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Auto-source resources</div>
+            <p style={{ fontSize: 13, color: "#8A8172", margin: "0 0 16px" }}>{autoFor.name}</p>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={optImages} onChange={(e) => setOptImages(e.target.checked)} /> Find topic images
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={optVideos} onChange={(e) => setOptVideos(e.target.checked)} /> Find video links
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, marginBottom: 16, cursor: "pointer" }}>
+              <input type="checkbox" checked={optAiImages} onChange={(e) => setOptAiImages(e.target.checked)} /> Generate AI images
+            </label>
+            {autoResult && (
+              <div style={{ background: "#E4F3EC", color: "#1E7A50", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 600, marginBottom: 14 }}>
+                {autoResult.imagesFound} images · {autoResult.videosFound} videos · {autoResult.headingsProcessed} headings processed{autoResult.truncated ? " · truncated" : ""}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setAutoFor(null)} style={{ background: "#F1ECE2", color: "#5A5347", border: "none", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Close</button>
+              <button onClick={runAutoSource} disabled={autoRunning} style={{ background: "#4C43D9", color: "#fff", border: "none", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {autoRunning ? "Running…" : "Run auto-sourcing"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

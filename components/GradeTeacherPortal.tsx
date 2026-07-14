@@ -6,7 +6,7 @@ import Wall from "@/components/Wall";
 
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 
-type TabKey = "overview" | "teachers" | "wall" | "settings";
+type TabKey = "overview" | "teachers" | "wall" | "review" | "settings";
 
 type SubjectTeacher = {
   id: string;
@@ -197,6 +197,7 @@ export default function GradeTeacherPortal({
         <button onClick={() => setTab("overview")} title="Grade Overview" style={navBtn("overview")}>⌂</button>
         <button onClick={() => setTab("teachers")} title="Subject Teachers" style={navBtn("teachers")}>👤</button>
         <button onClick={() => setTab("wall")} title="Wall" style={navBtn("wall")}>💬</button>
+        <button onClick={() => setTab("review")} title="Content Review" style={navBtn("review")}>✅</button>
         <button onClick={() => setTab("settings")} title="Settings" style={navBtn("settings")}>⚙️</button>
         <div style={{ flex: 1 }} />
         <div
@@ -249,6 +250,8 @@ export default function GradeTeacherPortal({
         )}
 
         {tab === "wall" && <Wall role="grade_teacher" />}
+
+        {tab === "review" && <ContentReview />}
 
         {tab === "settings" && <ChannelSettings />}
       </div>
@@ -690,6 +693,201 @@ function ChannelSettings() {
       </Card>
     </div>
   );
+}
+
+/* ===== Content Review tab — grade teacher approves/rejects subject-teacher submissions ===== */
+type ReviewItem = {
+  id: string;
+  subject_name: string;
+  topic_name: string;
+  content_type: "text" | "image" | "video";
+  content: string;
+  title: string;
+  approval_status: "pending" | "approved" | "rejected";
+  review_note: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  teacher_name: string;
+};
+
+function ContentReview() {
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [actingId, setActingId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const r = await fetch("/api/grade-teacher/content-review");
+      if (!r.ok) { setError("Could not load content submissions."); return; }
+      const data = await r.json();
+      setItems(data.items ?? []);
+    } catch {
+      setError("Could not load content submissions.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function review(contentId: string, action: "approve" | "reject") {
+    setActingId(contentId);
+    try {
+      const r = await fetch("/api/grade-teacher/content-review", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentId, action, note: notes[contentId]?.trim() || undefined }),
+      });
+      if (r.ok) {
+        setNotes((n) => { const c = { ...n }; delete c[contentId]; return c; });
+        await load();
+      }
+    } catch {
+      /* leave the list as-is on failure */
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  const pending = items.filter((i) => i.approval_status === "pending");
+  const history = items.filter((i) => i.approval_status !== "pending");
+
+  if (loading) return <EmptyNote icon="⏳" title="Loading content submissions…" />;
+  if (error) return <EmptyNote icon="⚠️" title={error} />;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 16 }}>Content Review</div>
+        {pending.length > 0 && (
+          <span style={{ background: "#FBE9DC", color: "#B5561F", borderRadius: 20, padding: "3px 11px", fontSize: 12, fontWeight: 700 }}>{pending.length} pending</span>
+        )}
+      </div>
+
+      {pending.length === 0 ? (
+        <EmptyNote icon="✅" title="Nothing waiting for review." sub="New subject-teacher submissions will appear here." />
+      ) : (
+        pending.map((it) => (
+          <Card key={it.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <ContentTypeBadge type={it.content_type} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{it.subject_name} · {it.topic_name}</div>
+                <div style={{ fontSize: 12, color: "#8A8172" }}>{it.teacher_name} · {formatWhen(it.submitted_at ?? it.created_at)}</div>
+              </div>
+            </div>
+            {it.title && <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 6 }}>{it.title}</div>}
+            <ContentPreview type={it.content_type} content={it.content} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12, borderTop: "1px solid #F1ECE2", paddingTop: 12 }}>
+              <input
+                value={notes[it.id] ?? ""}
+                onChange={(e) => setNotes((n) => ({ ...n, [it.id]: e.target.value }))}
+                placeholder="Optional note (sent with approve or reject)"
+                style={{ border: "1px solid #E0D9CC", borderRadius: 10, padding: "8px 10px", fontSize: 13, boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => review(it.id, "approve")}
+                  disabled={actingId === it.id}
+                  style={{ background: actingId === it.id ? "#A7D8BF" : "#2E9E6B", color: "#fff", border: "none", borderRadius: 12, padding: "9px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                >
+                  {actingId === it.id ? "…" : "Approve"}
+                </button>
+                <button
+                  onClick={() => review(it.id, "reject")}
+                  disabled={actingId === it.id}
+                  style={{ background: actingId === it.id ? "#EBB7AF" : "#C0392B", color: "#fff", border: "none", borderRadius: 12, padding: "9px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                >
+                  {actingId === it.id ? "…" : "Reject"}
+                </button>
+              </div>
+            </div>
+          </Card>
+        ))
+      )}
+
+      {history.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            style={{ background: "transparent", border: "none", cursor: "pointer", fontFamily: DISPLAY, fontWeight: 700, fontSize: 15, color: "#5A5347", padding: "6px 0" }}
+          >
+            {showHistory ? "▾" : "▸"} History ({history.length})
+          </button>
+          {showHistory && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+              {history.map((it) => (
+                <Card key={it.id}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ background: it.approval_status === "approved" ? "#E4F3EB" : "#FDECEA", color: it.approval_status === "approved" ? "#2E9E6B" : "#C0392B", borderRadius: 8, padding: "3px 10px", fontSize: 12, fontWeight: 700 }}>
+                      {it.approval_status === "approved" ? "Approved" : "Rejected"}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{it.subject_name} · {it.topic_name}</div>
+                      <div style={{ fontSize: 12, color: "#8A8172" }}>{it.title || it.teacher_name}</div>
+                    </div>
+                  </div>
+                  {it.review_note && <div style={{ fontSize: 13, color: "#5A5347", marginTop: 8, background: "#F6F3EC", borderRadius: 10, padding: "8px 12px" }}>{it.review_note}</div>}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContentTypeBadge({ type }: { type: ReviewItem["content_type"] }) {
+  const map: Record<ReviewItem["content_type"], { icon: string; label: string }> = {
+    text: { icon: "📝", label: "Text" },
+    image: { icon: "🖼️", label: "Image" },
+    video: { icon: "🎬", label: "Video" },
+  };
+  const t = map[type];
+  return <span style={{ background: "#F3F1FB", color: "#4C43D9", borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{t.icon} {t.label}</span>;
+}
+
+function isHttpUrl(u: string): boolean {
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function ContentPreview({ type, content }: { type: ReviewItem["content_type"]; content: string }) {
+  if (!content) return <div style={{ fontSize: 13, color: "#A79E8E" }}>No content provided.</div>;
+  // Never render a teacher-supplied string into href/src unless it is an http(s)
+  // URL — blocks javascript:/data: URI XSS. Non-URL values fall through to text.
+  if ((type === "image" || type === "video") && !isHttpUrl(content)) {
+    return <div style={{ fontSize: 13, color: "#C0392B", wordBreak: "break-all" }}>⚠ Unsafe/invalid URL: {content}</div>;
+  }
+  if (type === "image") {
+    return (
+      <a href={content} target="_blank" rel="noreferrer" style={{ display: "inline-block" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={content} alt="submission preview" style={{ maxWidth: 220, maxHeight: 140, borderRadius: 12, border: "1px solid #E7E1D6", objectFit: "cover" }} />
+      </a>
+    );
+  }
+  if (type === "video") {
+    return <a href={content} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: "#4C43D9", fontWeight: 700, wordBreak: "break-all" }}>🎬 {content}</a>;
+  }
+  const text = content.length > 200 ? content.slice(0, 200) + "…" : content;
+  return <div style={{ fontSize: 13, color: "#5A5347", whiteSpace: "pre-wrap", background: "#F6F3EC", borderRadius: 10, padding: "10px 12px" }}>{text}</div>;
+}
+
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 /* ===== small shared bits ===== */
