@@ -169,6 +169,36 @@ export async function getSubjects(): Promise<SubjectRow[]> {
   return results;
 }
 
+export type TopicFileNode = { fileId: string; fileName: string; topics: string[] };
+export type SubjectHierarchyNode = { shortName: string; files: TopicFileNode[] };
+
+// 3-level picker: Subject (short_name) → Chapter (file) → Topic (chunk heading).
+// Pass a short_name to restrict to a single subject (used by the teacher route).
+export async function topicHierarchy(filterShortName?: string): Promise<SubjectHierarchyNode[]> {
+  const rows = await query<{ file_id: string; file_name: string; short_name: string; topics: string[] }>(
+    `SELECT sf.id AS file_id, sf.name AS file_name,
+            COALESCE(sf.short_name, sf.subject) AS short_name,
+            array_agg(DISTINCT sc.heading) AS topics
+       FROM syllabus_files sf
+       JOIN syllabus_chunks sc ON sc.file_id = sf.id
+      WHERE sc.heading != 'Intro'
+        AND COALESCE(sf.short_name, sf.subject) NOT IN ('IB Framework', 'Knowledge Index')
+        AND sf.name NOT IN ('00-IB-framework-reference.md', '00-index.md')
+        ${filterShortName ? "AND COALESCE(sf.short_name, sf.subject) = $1" : ""}
+      GROUP BY sf.id, sf.name, sf.short_name, sf.subject
+      ORDER BY short_name, file_name`,
+    filterShortName ? [filterShortName] : []
+  );
+  const subjects: SubjectHierarchyNode[] = [];
+  for (const r of rows) {
+    const topics = [...(r.topics || [])].sort((a, b) => a.localeCompare(b));
+    let subj = subjects.find((s) => s.shortName === r.short_name);
+    if (!subj) { subj = { shortName: r.short_name, files: [] }; subjects.push(subj); }
+    subj.files.push({ fileId: r.file_id, fileName: r.file_name, topics });
+  }
+  return subjects;
+}
+
 export async function retrieve(
   query_str: string,
   k = 4,

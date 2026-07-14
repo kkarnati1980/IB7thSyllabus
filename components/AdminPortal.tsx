@@ -898,11 +898,14 @@ function KbPanel({ grade, onGradesChanged }: { grade: Grade; onGradesChanged: ()
 
 /* ===== IMAGES TAB ===== */
 type TopicImage = { id: string; image_url: string; thumbnail_url: string; alt_text: string; source: string; status: string };
-type SyllabusFile = { id: string; name: string; subject: string };
+
+type SubjectHierarchy = { shortName: string; files: { fileId: string; fileName: string; topics: string[] }[] };
 
 function ImagesTab() {
-  const [syllabusFiles, setSyllabusFiles] = useState<SyllabusFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<SyllabusFile | null>(null);
+  const [hierarchy, setHierarchy] = useState<SubjectHierarchy[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState("");
+  const [selectedFileId, setSelectedFileId] = useState("");
+  const [selectedTopic, setSelectedTopic] = useState("");
   const [images, setImages] = useState<TopicImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState<"web" | "ai" | null>(null);
@@ -910,34 +913,43 @@ function ImagesTab() {
   const [manualAlt, setManualAlt] = useState("");
   const [error, setError] = useState("");
   const [approving, setApproving] = useState<string | null>(null);
+  const [lightboxImg, setLightboxImg] = useState<{ url: string; alt: string } | null>(null);
 
-  // Load syllabus files for dropdowns
+  // Load the full Subject → Chapter → Topic hierarchy for the cascade.
   useEffect(() => {
-    fetch("/api/syllabus")
+    fetch("/api/admin/topic-picker")
       .then((r) => r.json())
-      .then((j) => {
-        if (j.files) setSyllabusFiles(j.files);
-      });
+      .then((j) => { if (j.subjects) setHierarchy(j.subjects); });
   }, []);
 
-  async function loadImages(file: SyllabusFile) {
-    setSelectedFile(file);
+  const subjectFiles = hierarchy.find((s) => s.shortName === selectedSubject)?.files ?? [];
+  const chapterTopics = subjectFiles.find((f) => f.fileId === selectedFileId)?.topics ?? [];
+  const selectedFileName = subjectFiles.find((f) => f.fileId === selectedFileId)?.fileName ?? "";
+  const ready = !!selectedTopic;
+
+  async function loadImages(topic: string, subject: string) {
     setLoading(true);
     setError("");
-    const res = await fetch(`/api/images?topicName=${encodeURIComponent(file.name)}&subjectName=${encodeURIComponent(file.subject)}&all=true`);
+    const res = await fetch(`/api/images?topicName=${encodeURIComponent(topic)}&subjectName=${encodeURIComponent(subject)}&all=true`);
     const j = await res.json();
     setImages(j.images || []);
     setLoading(false);
   }
 
+  function chooseTopic(topic: string) {
+    setSelectedTopic(topic);
+    if (topic) loadImages(topic, selectedSubject);
+    else setImages([]);
+  }
+
   async function generate(action: "web" | "ai") {
-    if (!selectedFile) { setError("Select a topic first."); return; }
+    if (!ready) { setError("Select a subject, chapter and topic first."); return; }
     setGenerating(action);
     setError("");
     const res = await fetch("/api/images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicName: selectedFile.name, subjectName: selectedFile.subject, action }),
+      body: JSON.stringify({ topicName: selectedTopic, subjectName: selectedSubject, action }),
     });
     const j = await res.json();
     if (!res.ok) { setError(j.error || "Failed"); setGenerating(null); return; }
@@ -946,12 +958,12 @@ function ImagesTab() {
   }
 
   async function saveManual() {
-    if (!manualUrl || !selectedFile) { setError("Select a topic and enter a URL."); return; }
+    if (!manualUrl || !ready) { setError("Select a topic and enter a URL."); return; }
     setError("");
     const res = await fetch("/api/images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicName: selectedFile.name, subjectName: selectedFile.subject, action: "manual", imageUrl: manualUrl, altText: manualAlt || selectedFile.name }),
+      body: JSON.stringify({ topicName: selectedTopic, subjectName: selectedSubject, action: "manual", imageUrl: manualUrl, altText: manualAlt || selectedTopic }),
     });
     const j = await res.json();
     if (!res.ok) { setError(j.error || "Failed"); return; }
@@ -960,12 +972,12 @@ function ImagesTab() {
   }
 
   async function setStatus(imageId: string, action: "approve" | "reject") {
-    if (!selectedFile) return;
+    if (!ready) return;
     setApproving(imageId);
     const res = await fetch("/api/images", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topicName: selectedFile.name, subjectName: selectedFile.subject, action, imageId }),
+      body: JSON.stringify({ topicName: selectedTopic, subjectName: selectedSubject, action, imageId }),
     });
     const j = await res.json();
     if (res.ok) setImages(j.images || []);
@@ -989,41 +1001,84 @@ function ImagesTab() {
 
   return (
     <div style={{ padding: "24px 32px" }}>
+      {lightboxImg && (
+        <div
+          onClick={() => setLightboxImg(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", cursor: "zoom-out" }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
+            <img
+              src={lightboxImg.url}
+              alt={lightboxImg.alt}
+              style={{ maxWidth: "90vw", maxHeight: "85vh", objectFit: "contain", borderRadius: 12, display: "block" }}
+              onError={(e) => { (e.target as HTMLImageElement).src = `https://placehold.co/800x500/23201B/ffffff?text=${encodeURIComponent("Image unavailable")}`; }}
+            />
+            <div style={{ position: "absolute", bottom: -32, left: 0, right: 0, textAlign: "center", color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
+              {lightboxImg.alt} · Click anywhere to close
+            </div>
+            <button
+              onClick={() => setLightboxImg(null)}
+              style={{ position: "absolute", top: -14, right: -14, background: "#fff", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", fontWeight: 800, fontSize: 14, lineHeight: "28px", textAlign: "center" }}
+            >✕</button>
+          </div>
+        </div>
+      )}
       <h2 style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 26, margin: "0 0 6px" }}>Topic Images</h2>
       <p style={{ color: "#6B6459", fontSize: 15, margin: "0 0 6px" }}>Generate images for topics. All images start as <strong>Pending</strong> — you must Approve them before students can see them.</p>
       <p style={{ color: "#C0392B", fontSize: 13, fontWeight: 600, margin: "0 0 24px" }}>⚠ Review all images carefully before approving. Only IB-appropriate, curriculum-relevant content should be shown to students.</p>
 
       <div style={{ background: "#fff", border: "1px solid #E7E1D6", borderRadius: 18, padding: 22, marginBottom: 20 }}>
-        {/* Topic selector */}
-        <div style={{ marginBottom: 18 }}>
-          <label style={smallLabel}>Select topic from syllabus</label>
+        {/* Step 1 — Subject */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={smallLabel}>Step 1 — Subject</label>
           <select
-            value={selectedFile?.id ?? ""}
-            onChange={(e) => {
-              const f = syllabusFiles.find((x) => x.id === e.target.value);
-              if (f) loadImages(f);
-            }}
-            style={{ width: "100%", border: "1px solid #E0D9CC", borderRadius: 10, padding: "11px 13px", fontSize: 14, background: "#fff" }}
+            value={selectedSubject}
+            onChange={(e) => { setSelectedSubject(e.target.value); setSelectedFileId(""); setSelectedTopic(""); setImages([]); }}
+            style={cascadeSelect}
           >
-            <option value="">— Choose a topic —</option>
-            {syllabusFiles.map((f) => (
-              <option key={f.id} value={f.id}>{f.subject} → {f.name}</option>
-            ))}
+            <option value="">— Select subject —</option>
+            {hierarchy.map((s) => <option key={s.shortName} value={s.shortName}>{s.shortName}</option>)}
           </select>
         </div>
 
-        {selectedFile && (
+        {/* Step 2 — Chapter */}
+        {selectedSubject && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={smallLabel}>Step 2 — Chapter</label>
+            <select
+              value={selectedFileId}
+              onChange={(e) => { setSelectedFileId(e.target.value); setSelectedTopic(""); setImages([]); }}
+              style={cascadeSelect}
+            >
+              <option value="">— Select chapter —</option>
+              {subjectFiles.map((f) => <option key={f.fileId} value={f.fileId}>{f.fileName}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Step 3 — Topic */}
+        {selectedFileId && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={smallLabel}>Step 3 — Topic</label>
+            <select value={selectedTopic} onChange={(e) => chooseTopic(e.target.value)} style={cascadeSelect}>
+              <option value="">— Select topic —</option>
+              {chapterTopics.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
+
+        {ready && (
           <>
             <div style={{ background: "#F3F1FB", borderRadius: 12, padding: "10px 14px", marginBottom: 16, fontSize: 14 }}>
-              <strong>Selected:</strong> {selectedFile.name} <span style={{ color: "#8A8172" }}>({selectedFile.subject})</span>
+              ✓ <strong>{selectedSubject}</strong> → {selectedFileName} → <strong>{selectedTopic}</strong>
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-              <button onClick={() => generate("web")} disabled={generating !== null}
+              <button onClick={() => generate("web")} disabled={generating !== null || !ready}
                 style={{ background: "#4C43D9", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
                 {generating === "web" ? "Searching…" : "🔍 Find web image"}
               </button>
-              <button onClick={() => generate("ai")} disabled={generating !== null}
+              <button onClick={() => generate("ai")} disabled={generating !== null || !ready}
                 style={{ background: "#2E9E6B", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
                 {generating === "ai" ? "Generating…" : "🎨 Generate AI image (DALL-E)"}
               </button>
@@ -1034,7 +1089,7 @@ function ImagesTab() {
               <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 10 }}>
                 <input value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="https://..." style={{ border: "1px solid #E0D9CC", borderRadius: 10, padding: "10px 12px", fontSize: 13 }} />
                 <input value={manualAlt} onChange={(e) => setManualAlt(e.target.value)} placeholder="Alt text / description" style={{ border: "1px solid #E0D9CC", borderRadius: 10, padding: "10px 12px", fontSize: 13 }} />
-                <button onClick={saveManual} style={{ background: "#E8823A", color: "#fff", border: "none", borderRadius: 10, padding: "0 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Save</button>
+                <button onClick={saveManual} disabled={!ready} style={{ background: "#E8823A", color: "#fff", border: "none", borderRadius: 10, padding: "0 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Save</button>
               </div>
             </div>
           </>
@@ -1045,7 +1100,7 @@ function ImagesTab() {
 
       {loading && <div style={{ textAlign: "center", padding: 40, color: "#8A8172", fontWeight: 600 }}>Loading images…</div>}
 
-      {!loading && selectedFile && images.length === 0 && (
+      {!loading && ready && images.length === 0 && (
         <div style={{ textAlign: "center", padding: 40, color: "#8A8172" }}>
           <div style={{ fontSize: 32 }}>🖼</div>
           <div style={{ fontWeight: 600, marginTop: 8 }}>No images yet for this topic.</div>
@@ -1060,11 +1115,20 @@ function ImagesTab() {
               <div style={{ position: "relative" }}>
                 <img src={img.thumbnail_url} alt={img.alt_text}
                   style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }}
-                  onError={(e) => { (e.target as HTMLImageElement).src = "https://placehold.co/400x200?text=Image+unavailable"; }} />
-                <a href={img.image_url} target="_blank" rel="noreferrer"
-                  style={{ position: "absolute", top: 10, right: 10, background: "rgba(0,0,0,.6)", color: "#fff", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
-                  View full ↗
-                </a>
+                  onError={(e) => {
+                    const t = e.target as HTMLImageElement;
+                    if (!t.dataset.fallback) {
+                      t.dataset.fallback = "1";
+                      t.src = img.image_url; // try the full-size URL
+                    } else {
+                      t.src = `https://placehold.co/400x200/EFEAE0/8A8172?text=${encodeURIComponent(img.alt_text.slice(0, 25))}`;
+                    }
+                  }} />
+                <button
+                  onClick={() => setLightboxImg({ url: img.image_url, alt: img.alt_text })}
+                  style={{ position: "absolute", top: 10, right: 10, background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  🔍 View full
+                </button>
               </div>
               <div style={{ padding: "14px 16px" }}>
                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{img.alt_text}</div>
@@ -1119,4 +1183,5 @@ function EditField({ label, children }: { label: string; children: React.ReactNo
 
 const editInput: React.CSSProperties = { width: "100%", border: "1px solid #E0D9CC", borderRadius: 9, padding: "9px 11px", fontSize: 14, background: "#fff" };
 const smallLabel: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 700, color: "#5A5347", marginBottom: 6 };
+const cascadeSelect: React.CSSProperties = { width: "100%", border: "1px solid #E0D9CC", borderRadius: 10, padding: "11px 13px", fontSize: 14, background: "#fff" };
 const panelInput: React.CSSProperties = { width: "100%", border: "1px solid #E0D9CC", borderRadius: 10, padding: "10px 12px", fontSize: 14, marginBottom: 12 };

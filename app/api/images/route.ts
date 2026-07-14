@@ -83,20 +83,20 @@ export async function POST(req: NextRequest) {
   if (body.action === "web") {
     // Wikipedia pageimages needs no API key and returns a real thumbnail per title.
     // source.unsplash.com is deprecated and now returns nothing.
+    // Look the topic heading up directly (e.g. "Concept: The Atom"), not the file/subject.
     let imageUrl = "";
     let thumbnailUrl = "";
     try {
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(
-        `${body.topicName} ${body.subjectName}`.trim()
-      )}&prop=pageimages&format=json&pithumbsize=800&origin=*`;
-      const wikiRes = await fetch(wikiUrl);
+      const wikiRes = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(body.topicName)}&prop=pageimages&format=json&pithumbsize=800&origin=*`
+      );
       if (wikiRes.ok) {
         const data = (await wikiRes.json()) as { query?: { pages?: Record<string, { thumbnail?: { source?: string } }> } };
-        const pages = data.query?.pages ?? {};
-        const thumb = Object.values(pages)[0]?.thumbnail?.source;
+        const pages = Object.values(data.query?.pages ?? {});
+        const thumb = pages[0]?.thumbnail?.source;
         if (thumb) {
           imageUrl = thumb;
-          thumbnailUrl = thumb;
+          thumbnailUrl = thumb.replace(/\/\d+px-/, "/400px-"); // smaller thumbnail variant
         }
       }
     } catch (e) {
@@ -104,9 +104,9 @@ export async function POST(req: NextRequest) {
     }
     if (!imageUrl) {
       // Guaranteed-working placeholder when Wikipedia has no image for the topic.
-      const ph = `https://placehold.co/800x500?text=${encodeURIComponent(body.topicName)}`;
-      imageUrl = ph;
-      thumbnailUrl = ph;
+      const label = encodeURIComponent(body.topicName.slice(0, 30));
+      imageUrl = `https://placehold.co/800x500/4C43D9/ffffff?text=${label}`;
+      thumbnailUrl = `https://placehold.co/400x250/4C43D9/ffffff?text=${label}`;
     }
 
     const id = uid("img");

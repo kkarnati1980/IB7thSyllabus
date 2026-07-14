@@ -993,12 +993,12 @@ function HomeScreen({
   }
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", padding: "54px 48px 80px", animation: "jfade .4s ease" }}>
+    <div style={{ width: "100%", padding: "54px 48px 80px", animation: "jfade .4s ease" }}>
       <div style={{ fontFamily: DISPLAY, fontWeight: 500, fontSize: 15, letterSpacing: ".14em", textTransform: "uppercase", color: "#8A8172" }}>IB MYP · Self-Learning Studio</div>
       <h1 style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 44, lineHeight: 1.05, margin: "10px 0 4px", letterSpacing: "-.02em" }}>Hi {name} 👋</h1>
       <p style={{ fontSize: 18, color: "#6B6459", margin: "0 0 28px", maxWidth: 620 }}>What would you like to understand today? Pick a topic and Jarvis will teach it the IB way — through inquiry, not memorising.</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, marginBottom: 40 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1fr", gap: 20, marginBottom: 40 }}>
         {/* In-progress / resume */}
         <div style={{ background: "linear-gradient(150deg,#4C43D9,#6B62F5)", borderRadius: 24, padding: "24px 28px", color: "#fff", boxShadow: "0 18px 40px -18px rgba(76,67,217,.7)" }}>
           <div style={{ fontSize: 13, letterSpacing: ".12em", textTransform: "uppercase", opacity: 0.8, fontFamily: DISPLAY, marginBottom: 12 }}>Continue learning</div>
@@ -1008,12 +1008,12 @@ function HomeScreen({
               <div style={{ opacity: 0.85, marginTop: 6, fontSize: 14 }}>Choose any subject below to begin</div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
               {inProgressTopics.map((p) => (
                 <button key={p.topicId} onClick={() => goToTopic(p.topicId, subjects, openTopic)}
-                  style={{ background: "rgba(255,255,255,.15)", border: "1px solid rgba(255,255,255,.25)", borderRadius: 14, padding: "12px 16px", cursor: "pointer", textAlign: "left", color: "#fff" }}>
-                  <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 16 }}>{p.topicName}</div>
-                  <div style={{ opacity: 0.8, fontSize: 13, marginTop: 2 }}>{p.subject} · {p.mastery}% mastery</div>
+                  style={{ background: "rgba(255,255,255,.15)", border: "1px solid rgba(255,255,255,.25)", borderRadius: 12, padding: "10px 14px", cursor: "pointer", textAlign: "left", color: "#fff" }}>
+                  <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 14 }}>{p.topicName}</div>
+                  <div style={{ opacity: 0.8, fontSize: 12, marginTop: 2 }}>{p.subject} · {p.mastery}%</div>
                 </button>
               ))}
             </div>
@@ -1065,19 +1065,33 @@ function HomeScreen({
                     {inProgress > 0 && <span style={{ color: "#E8823A", marginLeft: 6 }}>· {inProgress} in progress</span>}
                   </div>
                 </div>
-                {/* Mini progress bar */}
-                <div style={{ width: 120, display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ height: 6, background: "#EEE9DF", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pctNum}%`, background: color, borderRadius: 4 }} />
+                {/* Mini stats + progress bar */}
+                <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#A79E8E" }}>Topics</div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.topics.length}</div>
                   </div>
-                  <div style={{ fontSize: 12, color, fontWeight: 700 }}>{pctNum}% avg mastery</div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#A79E8E" }}>In Progress</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#E8823A" }}>{inProgress}</div>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#A79E8E" }}>Mastered</div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#2E9E6B" }}>{mastered}</div>
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <div style={{ height: 6, background: "#EEE9DF", borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pctNum}%`, background: color, borderRadius: 4 }} />
+                    </div>
+                    <div style={{ fontSize: 11, color, fontWeight: 700, marginTop: 2 }}>{pctNum}% avg</div>
+                  </div>
                 </div>
                 <div style={{ fontSize: 20, color: "#8A8172", transform: expanded ? "rotate(180deg)" : "none", transition: ".2s" }}>⌄</div>
               </button>
 
               {/* Expanded topics grid */}
               {expanded && (
-                <div style={{ borderTop: "1px solid #F1ECE2", padding: "16px 22px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+                <div style={{ borderTop: "1px solid #F1ECE2", padding: "16px 22px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
                   {s.topics.map((t) => {
                     const m = tracker[t.id]?.mastery || 0;
                     const dot = m >= 75 ? "#2E9E6B" : m > 0 ? "#E8823A" : "#CFC7B8";

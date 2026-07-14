@@ -131,7 +131,8 @@ export default function SubjectTeacherPortal({
 
   // Content tab
   const [content, setContent] = useState<Content[]>([]);
-  const [topics, setTopics] = useState<string[]>([]);
+  const [chapters, setChapters] = useState<{ fileId: string; fileName: string; topics: string[] }[]>([]);
+  const [cFileId, setCFileId] = useState("");
   const [cTopic, setCTopic] = useState("");
   const [cTitle, setCTitle] = useState("");
   const [cType, setCType] = useState("text");
@@ -150,23 +151,26 @@ export default function SubjectTeacherPortal({
   const [newChannelKeywords, setNewChannelKeywords] = useState("");
   const [channelBusy, setChannelBusy] = useState(false);
 
-  // Topics come from the syllabus keyed by short_name (the assigned subject value),
-  // which the client-side `syllabus` prop (keyed by verbose subject) can't match.
-  const loadTopics = useCallback(async (subjectName: string) => {
+  // 3-level cascade: the teacher's subject → its chapters (files) → topics (headings).
+  // Keyed by short_name (the assigned subject value), which the client-side `syllabus`
+  // prop (keyed by verbose subject) can't match.
+  const loadChapters = useCallback(async (subjectName: string) => {
+    setCFileId("");
+    setCTopic("");
     if (!subjectName) {
-      setTopics([]);
+      setChapters([]);
       return;
     }
     try {
-      const r = await fetch(`/api/teacher/topics?subjectName=${encodeURIComponent(subjectName)}`);
+      const r = await fetch(`/api/teacher/topic-picker?subjectName=${encodeURIComponent(subjectName)}`);
       if (r.ok) {
-        const j = (await r.json()) as { topics: { topic_name: string }[] };
-        setTopics((j.topics ?? []).map((t) => t.topic_name));
+        const j = (await r.json()) as { subjects: { shortName: string; files: { fileId: string; fileName: string; topics: string[] }[] }[] };
+        setChapters(j.subjects?.[0]?.files ?? []);
       } else {
-        setTopics([]);
+        setChapters([]);
       }
     } catch {
-      setTopics([]);
+      setChapters([]);
     }
   }, []);
 
@@ -291,10 +295,10 @@ export default function SubjectTeacherPortal({
   useEffect(() => {
     if (tab === "content") {
       loadContent(selectedSubject);
-      loadTopics(selectedSubject);
+      loadChapters(selectedSubject);
     }
     if (tab === "criteria") loadCriteria(selectedSubject);
-  }, [tab, selectedSubject, loadContent, loadTopics, loadCriteria]);
+  }, [tab, selectedSubject, loadContent, loadChapters, loadCriteria]);
 
   async function addContent() {
     if (!selectedSubject || !cTopic || !cTitle.trim() || !cBody.trim() || cBusy) return;
@@ -848,12 +852,17 @@ export default function SubjectTeacherPortal({
           <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
             <div style={{ ...card, flex: "0 0 40%", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontWeight: 700, fontFamily: DISPLAY }}>Add content</div>
-              <select value={cTopic} onChange={(e) => setCTopic(e.target.value)} style={inputStyle}>
+              <div style={{ fontSize: 13, color: "#6B6459" }}>Subject: <strong>{selectedSubject || "—"}</strong></div>
+              <select value={cFileId} onChange={(e) => { setCFileId(e.target.value); setCTopic(""); }} style={inputStyle}>
+                <option value="">Select chapter…</option>
+                {chapters.map((f) => (
+                  <option key={f.fileId} value={f.fileId}>{f.fileName}</option>
+                ))}
+              </select>
+              <select value={cTopic} onChange={(e) => setCTopic(e.target.value)} style={inputStyle} disabled={!cFileId}>
                 <option value="">Select topic…</option>
-                {topics.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
+                {(chapters.find((f) => f.fileId === cFileId)?.topics ?? []).map((t) => (
+                  <option key={t} value={t}>{t}</option>
                 ))}
               </select>
               <input
