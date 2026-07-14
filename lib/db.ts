@@ -185,6 +185,19 @@ export async function topicHierarchy(filterShortName?: string): Promise<SubjectH
         AND sf.short_name IS NOT NULL
         AND COALESCE(sf.short_name, sf.subject) NOT IN ('IB Framework', 'Knowledge Index')
         AND sf.name NOT IN ('00-IB-framework-reference.md', '00-index.md')
+        -- Drop metadata/section-group headings; keep real topics (e.g. "Concept: …").
+        AND sc.heading NOT LIKE '(%)'
+        AND sc.heading NOT ILIKE '%Knowledge Base%'
+        AND sc.heading NOT ILIKE '%Subject Overview%'
+        AND sc.heading NOT ILIKE '%Cross-Subject%'
+        AND sc.heading NOT ILIKE '%MYP Global Contexts%'
+        AND sc.heading NOT ILIKE '%assessment criteria%'
+        AND sc.heading NOT ILIKE '%Command-Term%'
+        AND sc.heading NOT ILIKE 'Subject-Wide%'
+        AND sc.heading NOT ILIKE 'The four MYP%'
+        AND sc.heading NOT ILIKE '%Related Concepts%'
+        AND sc.heading <> sf.subject
+        AND sc.heading <> COALESCE(sf.short_name, sf.subject)
         ${filterShortName ? "AND COALESCE(sf.short_name, sf.subject) = $1" : ""}
       GROUP BY sf.id, sf.name, sf.short_name, sf.subject
       ORDER BY short_name, file_name`,

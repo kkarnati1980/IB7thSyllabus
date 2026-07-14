@@ -927,6 +927,12 @@ function ImagesTab() {
   const selectedFileName = subjectFiles.find((f) => f.fileId === selectedFileId)?.fileName ?? "";
   const ready = !!selectedTopic;
 
+  // Most subjects have a single chapter — auto-select it so Step 3 (topics) shows immediately.
+  useEffect(() => {
+    const files = hierarchy.find((s) => s.shortName === selectedSubject)?.files ?? [];
+    if (selectedSubject && !selectedFileId && files.length === 1) setSelectedFileId(files[0].fileId);
+  }, [selectedSubject, selectedFileId, hierarchy]);
+
   async function loadImages(topic: string, subject: string) {
     setLoading(true);
     setError("");
@@ -1047,11 +1053,19 @@ function ImagesTab() {
             <label style={smallLabel}>Step 2 — Chapter</label>
             <select
               value={selectedFileId}
-              onChange={(e) => { setSelectedFileId(e.target.value); setSelectedTopic(""); setImages([]); }}
+              onChange={(e) => {
+                const fid = e.target.value;
+                setSelectedFileId(fid); setSelectedTopic(""); setImages([]);
+                console.log("chapterTopics", subjectFiles.find((f) => f.fileId === fid)?.topics ?? []);
+              }}
               style={cascadeSelect}
             >
               <option value="">— Select chapter —</option>
-              {subjectFiles.map((f) => <option key={f.fileId} value={f.fileId}>{f.fileName}</option>)}
+              {subjectFiles.map((f) => (
+                <option key={f.fileId} value={f.fileId}>
+                  {selectedSubject} — {f.fileName.replace(/\.md$/i, "").replace(/-/g, " ")}
+                </option>
+              ))}
             </select>
           </div>
         )}
