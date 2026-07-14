@@ -147,7 +147,7 @@ export type SubjectRow = {
 
 export async function getSubjects(): Promise<SubjectRow[]> {
   const files = await query<{ id: string; name: string; subject: string; short_name: string }>(
-    "SELECT id, name, subject, COALESCE(short_name, subject) AS short_name FROM syllabus_files ORDER BY created_at ASC"
+    "SELECT id, name, subject, COALESCE(short_name, subject) AS short_name FROM syllabus_files WHERE short_name IS NOT NULL ORDER BY created_at ASC"
   );
   const results: SubjectRow[] = [];
   for (let i = 0; i < files.length; i++) {
@@ -182,6 +182,7 @@ export async function topicHierarchy(filterShortName?: string): Promise<SubjectH
        FROM syllabus_files sf
        JOIN syllabus_chunks sc ON sc.file_id = sf.id
       WHERE sc.heading != 'Intro'
+        AND sf.short_name IS NOT NULL
         AND COALESCE(sf.short_name, sf.subject) NOT IN ('IB Framework', 'Knowledge Index')
         AND sf.name NOT IN ('00-IB-framework-reference.md', '00-index.md')
         ${filterShortName ? "AND COALESCE(sf.short_name, sf.subject) = $1" : ""}
