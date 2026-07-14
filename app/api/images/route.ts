@@ -81,11 +81,33 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "web") {
-    // Use Unsplash source URL (no API key needed)
-    const q = encodeURIComponent(`${body.topicName} ${body.subjectName} education IB MYP Grade 7`);
-    const seed = Date.now(); // different seed each time for variety
-    const imageUrl = `https://source.unsplash.com/800x500/?${q}&sig=${seed}`;
-    const thumbnailUrl = `https://source.unsplash.com/400x250/?${q}&sig=${seed}`;
+    // Wikipedia pageimages needs no API key and returns a real thumbnail per title.
+    // source.unsplash.com is deprecated and now returns nothing.
+    let imageUrl = "";
+    let thumbnailUrl = "";
+    try {
+      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(
+        `${body.topicName} ${body.subjectName}`.trim()
+      )}&prop=pageimages&format=json&pithumbsize=800&origin=*`;
+      const wikiRes = await fetch(wikiUrl);
+      if (wikiRes.ok) {
+        const data = (await wikiRes.json()) as { query?: { pages?: Record<string, { thumbnail?: { source?: string } }> } };
+        const pages = data.query?.pages ?? {};
+        const thumb = Object.values(pages)[0]?.thumbnail?.source;
+        if (thumb) {
+          imageUrl = thumb;
+          thumbnailUrl = thumb;
+        }
+      }
+    } catch (e) {
+      console.error("wikipedia image lookup failed", e);
+    }
+    if (!imageUrl) {
+      // Guaranteed-working placeholder when Wikipedia has no image for the topic.
+      const ph = `https://placehold.co/800x500?text=${encodeURIComponent(body.topicName)}`;
+      imageUrl = ph;
+      thumbnailUrl = ph;
+    }
 
     const id = uid("img");
     await execute(
@@ -100,41 +122,43 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "ai") {
-    const apiKeyRow = await queryOne<{ value: string }>(
-      "SELECT value FROM app_config WHERE key = 'openai_api_key'"
+    const imgConfig = await queryOne<{ model_name: string; api_key: string; base_url: string | null }>(
+      "SELECT model_name, api_key, base_url FROM llm_configs WHERE purpose = 'image_generation' AND active = true"
     );
-    if (!apiKeyRow?.value) {
-      return NextResponse.json({ error: "OpenAI API key not configured. Add it in Admin → Config & API Keys." }, { status: 400 });
+    if (!imgConfig?.api_key) {
+      return NextResponse.json({ error: "Image generation LLM not configured. Go to Admin → Config & API Keys." }, { status: 400 });
     }
 
     const prompt = `A clean, colorful educational illustration for Grade 7 IB MYP ${body.subjectName}: ${body.topicName}. Clear diagram style suitable for a 12-year-old student. Scientific accuracy. White background. No text overlays.`;
 
-    const res = await fetch("https://api.openai.com/v1/images/generations", {
+    const base = (imgConfig.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
+    const res = await fetch(`${base}/images/generations`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKeyRow.value}`,
+        Authorization: `Bearer ${imgConfig.api_key}`,
       },
       body: JSON.stringify({
-        model: "dall-e-3",
+        model: imgConfig.model_name,
         prompt,
         n: 1,
         size: "1024x1024",
-        quality: "standard",
       }),
     });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
       return NextResponse.json(
-        { error: `OpenAI error: ${err.error?.message ?? "Generation failed. Ensure your OpenAI account has DALL-E 3 access."}` },
+        { error: `Image generation error: ${err.error?.message ?? `Generation failed. Ensure your account has ${imgConfig.model_name} access.`}` },
         { status: 502 }
       );
     }
 
-    const data = await res.json() as { data: { url: string }[] };
-    const imageUrl = data.data[0]?.url;
-    if (!imageUrl) return NextResponse.json({ error: "No image returned from OpenAI" }, { status: 502 });
+    // dall-e-* returns a url; gpt-image-1 returns b64_json — support both.
+    const data = await res.json() as { data: { url?: string; b64_json?: string }[] };
+    const item = data.data?.[0];
+    const imageUrl = item?.url || (item?.b64_json ? `data:image/png;base64,${item.b64_json}` : "");
+    if (!imageUrl) return NextResponse.json({ error: "No image returned from the image LLM" }, { status: 502 });
 
     const id = uid("img");
     await execute(

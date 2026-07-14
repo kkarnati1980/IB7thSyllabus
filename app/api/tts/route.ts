@@ -16,12 +16,12 @@ export async function POST(req: NextRequest) {
 
   if (!body.text) return NextResponse.json({ error: "text required" }, { status: 400 });
 
-  // Get ElevenLabs API key from config
-  const keyRow = await queryOne<{ value: string }>(
-    "SELECT value FROM app_config WHERE key = 'elevenlabs_api_key'"
+  // Resolve the admin-configured voice_tts provider/model/key.
+  const voiceConfig = await queryOne<{ provider: string; model_name: string; api_key: string }>(
+    "SELECT provider, model_name, api_key FROM llm_configs WHERE purpose = 'voice_tts' AND active = true"
   );
-  if (!keyRow?.value) {
-    return NextResponse.json({ error: "ElevenLabs API key not configured" }, { status: 400 });
+  if (!voiceConfig?.api_key) {
+    return NextResponse.json({ error: "Voice TTS not configured" }, { status: 400 });
   }
 
   // Use user's preferred voice or default
@@ -34,13 +34,13 @@ export async function POST(req: NextRequest) {
     {
       method: "POST",
       headers: {
-        "xi-api-key": keyRow.value,
+        "xi-api-key": voiceConfig.api_key,
         "Content-Type": "application/json",
         Accept: "audio/mpeg",
       },
       body: JSON.stringify({
         text: clean,
-        model_id: "eleven_turbo_v2",
+        model_id: voiceConfig.model_name,
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       }),
     }
