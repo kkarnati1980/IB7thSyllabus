@@ -146,8 +146,8 @@ export type SubjectRow = {
 };
 
 export async function getSubjects(): Promise<SubjectRow[]> {
-  const files = await query<{ id: string; name: string; subject: string }>(
-    "SELECT id, name, subject FROM syllabus_files ORDER BY created_at ASC"
+  const files = await query<{ id: string; name: string; subject: string; short_name: string }>(
+    "SELECT id, name, subject, COALESCE(short_name, subject) AS short_name FROM syllabus_files ORDER BY created_at ASC"
   );
   const results: SubjectRow[] = [];
   for (let i = 0; i < files.length; i++) {
@@ -164,7 +164,7 @@ export async function getSubjects(): Promise<SubjectRow[]> {
       topics.push({ id: `${f.id}_t${topics.length}`, name: h.heading });
     });
     const [color, soft, icon] = SUBJECT_PALETTE[i % SUBJECT_PALETTE.length];
-    results.push({ id: f.id, name: f.subject, color, soft, icon, topics });
+    results.push({ id: f.id, name: f.short_name || f.subject, color, soft, icon, topics });
   }
   return results;
 }

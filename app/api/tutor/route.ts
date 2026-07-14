@@ -108,6 +108,17 @@ function looksLikeJson(text: string): boolean {
   return t.startsWith("{") && t.includes('"say"');
 }
 
+// Guard against mid-sentence truncation: if `say` doesn't end on . ! ? we trim
+// back to the last complete sentence, or signal continuation with an ellipsis.
+function ensureCompleteSentence(text: string): string {
+  if (!text) return text;
+  const trimmed = text.trim();
+  if (/[.!?]["')\]]?$/.test(trimmed)) return trimmed;
+  const lastComplete = trimmed.match(/^(.*[.!?]["')\]]?)\s*/s);
+  if (lastComplete && lastComplete[1].length > 20) return lastComplete[1].trim();
+  return trimmed + "…";
+}
+
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -146,7 +157,7 @@ export async function POST(req: NextRequest) {
     const { client, model } = await getChatClient();
     const message = await client.messages.create({
       model,
-      max_tokens: 1600,
+      max_tokens: 2400,
       system: tutorSystemPrompt(topicName, subjectName, ctx, summary, gradeId ?? "grade_7_iish", isTeacher),
       messages: convo,
     });
@@ -180,6 +191,9 @@ export async function POST(req: NextRequest) {
     const extracted = extractSay(say);
     say = extracted || "Let's keep going — tell me more about what you're thinking.";
   }
+
+  // Never let a mid-sentence cutoff reach the student (spoken aloud).
+  say = ensureCompleteSentence(say);
 
   // Content safety net — if the spoken reply trips a blocked pattern, swap it
   // for a gentle on-topic redirect rather than let it reach the student.

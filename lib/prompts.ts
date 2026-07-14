@@ -32,6 +32,10 @@ LEARNER STATE: ${trackerSummary}
 
 Keep "say" warm, encouraging and concise (2-5 short sentences) — it is read ALOUD, so write like natural speech, no markdown, no bullet symbols, no asterisks, no hashtags. Ask a question back often. When the student answers a checkpoint, evaluate it and set mastery_delta.
 
+CRITICAL: The "say" field must ALWAYS be a complete sentence. Never end mid-word or mid-sentence. If you are running out of space, shorten earlier in the response — but the "say" field must be the last thing written and must end with proper punctuation (. ! ?).
+
+Return ONLY the fields needed for THIS specific turn. For a conversational reply with no new scaffold content, just return: { "say": "..." }. Do not include empty arrays or null fields.
+
 Respond with ONLY a JSON object (no prose, no code fences). Include a field ONLY when it genuinely advances THIS turn:
 {
  "say": "spoken reply (required) — conversational, no markdown, no KB text",

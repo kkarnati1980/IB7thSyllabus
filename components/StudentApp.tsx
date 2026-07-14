@@ -124,6 +124,8 @@ export default function StudentApp({
 
   // Topic images
   const [topicImages, setTopicImages] = useState<TopicImage[]>([]);
+  // Per-stage concept visuals (Big Picture / Explain / IB Lens)
+  const [stageImages, setStageImages] = useState<Record<number, string>>({});
 
   // Teacher-published content for the open topic (school-linked only)
   const [teacherContent, setTeacherContent] = useState<TeacherContentItem[]>([]);
@@ -161,13 +163,14 @@ export default function StudentApp({
   }, [showVoicePicker, voices.length]);
 
   // ---------------------------------------------------------------- voice
-  const speakEl = useCallback(async (text: string) => {
+  const speakEl = useCallback(async (text: string, overrideVoiceId?: string) => {
     if (mutedRef.current) return;
+    const vid = overrideVoiceId || voiceId || undefined;
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId: voiceId || undefined }),
+        body: JSON.stringify({ text, voiceId: vid }),
       });
       if (!res.ok) return;
       const blob = await res.blob();
@@ -204,6 +207,44 @@ export default function StudentApp({
     if (elConfigured) speakEl(text);
     else speakBrowser(text);
   }, [elConfigured, speakEl, speakBrowser]);
+
+  // ---------------------------------------------------------------- concept visuals
+  // Prefer an approved topic image; else a Wikipedia thumbnail for the concept.
+  const fetchConceptImage = useCallback(async (queryStr: string): Promise<string | null> => {
+    try {
+      if (topicImages.length > 0) {
+        return topicImages[Math.floor(Math.random() * topicImages.length)].image_url;
+      }
+      const wikiRes = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(queryStr)}&prop=pageimages&format=json&pithumbsize=600&origin=*`
+      );
+      const wikiData = (await wikiRes.json()) as { query?: { pages?: Record<string, { thumbnail?: { source?: string } }> } };
+      const pages = Object.values(wikiData.query?.pages || {});
+      return pages[0]?.thumbnail?.source || null;
+    } catch {
+      return null;
+    }
+  }, [topicImages]);
+
+  // As stages advance (or a session restores), pull a visual for the sections that
+  // have content but no image yet. Derived from the live scaffold — no persistence needed.
+  useEffect(() => {
+    if (screen !== "lesson" || !activeTopic) return;
+    const topic = activeTopic.name;
+    const need: [number, string][] = [];
+    if (scaffold.cm && !stageImages[1]) need.push([1, scaffold.cm.core || topic]);
+    if (scaffold.layers?.length && !stageImages[3]) need.push([3, scaffold.layers[0].title || topic]);
+    if (scaffold.ib && !stageImages[4]) need.push([4, scaffold.ib.key || topic]);
+    if (!need.length) return;
+    let alive = true;
+    (async () => {
+      for (const [st, q] of need) {
+        const img = await fetchConceptImage(q);
+        if (alive && img) setStageImages((prev) => (prev[st] ? prev : { ...prev, [st]: img }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [scaffold, activeTopic, stageImages, fetchConceptImage, screen]);
 
   // ---------------------------------------------------------------- session persistence
   const saveSession = useCallback(async (topicId: string, topicName: string, subjectName: string, overrides?: Partial<{
@@ -300,24 +341,45 @@ export default function StudentApp({
   const sendRef = useRef(send);
   useEffect(() => void (sendRef.current = send), [send]);
 
-  // Speech recognition
+  // Speech recognition — buffered so the first and last words aren't clipped.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const r = new SR();
-    r.continuous = false; r.interimResults = true; r.lang = "en-US";
+    r.continuous = false;
+    r.interimResults = true;
+    r.lang = "en-US";
+    r.maxAlternatives = 1;
+
+    let speechStarted = false;
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    r.onspeechstart = () => {
+      speechStarted = true;
+      if (silenceTimer) clearTimeout(silenceTimer);
+    };
+
+    r.onspeechend = () => {
+      // Wait 800ms after speech tails off before stopping — catches trailing words.
+      silenceTimer = setTimeout(() => {
+        if (speechStarted) r.stop();
+      }, 800);
+    };
+
     r.onresult = (e: SpeechRecognitionEvent) => {
       let t = "";
       for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
       setChatInput(t);
       if (e.results[e.results.length - 1].isFinal) {
         setListening(false);
-        setTimeout(() => sendRef.current(t), 200);
+        if (silenceTimer) clearTimeout(silenceTimer);
+        setTimeout(() => sendRef.current(t), 300); // small buffer before sending
       }
     };
-    r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
+
+    r.onend = () => { setListening(false); speechStarted = false; };
+    r.onerror = () => { setListening(false); speechStarted = false; };
     recogRef.current = r;
   }, []);
 
@@ -346,6 +408,14 @@ export default function StudentApp({
     setVoiceId(id);
     if (typeof window !== "undefined") localStorage.setItem("jarvis_voice_id", id);
     setShowVoicePicker(false);
+    // Immediately confirm the switch in the newly-selected voice.
+    setTimeout(() => speakEl("Voice updated! I'll use this voice from now on.", id), 100);
+  }
+
+  // Preview a voice without selecting it — used by the ▶ Preview buttons.
+  function previewVoice(id: string) {
+    stopAudio();
+    speakEl("Hello, I'm Jarvis your learning assistant.", id);
   }
 
   // ---------------------------------------------------------------- tracker
@@ -383,6 +453,7 @@ export default function StudentApp({
     setVideos([]);
     setMindMap(null);
     setTopicImages([]);
+    setStageImages({});
     setTeacherContent([]);
     setScreen("lesson");
     setSessionLoading(true);
@@ -628,10 +699,6 @@ export default function StudentApp({
   const mv = at && tracker[at.id] ? tracker[at.id].mastery : 0;
   const mr = ring(mv, 16);
 
-  const stageDefs: [string, string][] = [
-    ["🎯", "Goal"], ["🗺", "Big picture"], ["🤔", "Inquiry"], ["📚", "Explain"],
-    ["◆", "IB lens"], ["⚠", "Misconceptions"], ["✅", "Check"], ["🌱", "Reinforce"],
-  ];
   const layerBg = ["#ECEBFB", "#E4F3EC", "#FBE9DC", "#F3F1FB", "#23201B"];
   const layerFg = ["#372FB0", "#1E7A50", "#B5561F", "#4C43D9", "#fff"];
 
@@ -668,12 +735,16 @@ export default function StudentApp({
             <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {voices.length === 0 && <div style={{ gridColumn: "1/3", textAlign: "center", padding: 40, color: "#8A8172" }}>Loading voices…</div>}
               {voices.map((v) => (
-                <button key={v.id} onClick={() => selectVoice(v.id)}
-                  style={{ border: `2px solid ${voiceId === v.id ? "#4C43D9" : "#E7E1D6"}`, background: voiceId === v.id ? "#F3F1FB" : "#FAF8F3", borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left" }}>
+                <div key={v.id} onClick={() => selectVoice(v.id)}
+                  style={{ border: `2px solid ${voiceId === v.id ? "#4C43D9" : "#E7E1D6"}`, background: voiceId === v.id ? "#F3F1FB" : "#FAF8F3", borderRadius: 14, padding: "14px 16px", cursor: "pointer", textAlign: "left", display: "flex", flexDirection: "column" }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: "#23201B" }}>{v.name}</div>
                   <div style={{ fontSize: 12, color: "#8A8172" }}>{v.gender} · {v.category}</div>
-                  {voiceId === v.id && <div style={{ fontSize: 11, color: "#4C43D9", fontWeight: 700, marginTop: 4 }}>✓ Selected</div>}
-                </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <button onClick={(e) => { e.stopPropagation(); previewVoice(v.id); }}
+                      style={{ background: "#ECEBFB", color: "#4C43D9", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>▶ Preview</button>
+                    {voiceId === v.id && <span style={{ fontSize: 11, color: "#4C43D9", fontWeight: 700 }}>✓ Selected</span>}
+                  </div>
+                </div>
               ))}
             </div>
             <button onClick={() => setShowVoicePicker(false)} style={{ marginTop: 18, background: "#23201B", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Close</button>
@@ -835,7 +906,7 @@ export default function StudentApp({
 
               <div style={{ padding: "16px 20px", borderTop: "1px solid #E2DBCE", background: "#fff" }}>
                 {speaking && <div onClick={interruptSpeech} style={{ textAlign: "center", fontSize: 13, color: "#4C43D9", fontWeight: 700, marginBottom: 8, cursor: "pointer", userSelect: "none" }}>🔊 Jarvis is speaking — tap to interrupt</div>}
-                {listening && <div style={{ textAlign: "center", fontSize: 13, color: "#E8823A", fontWeight: 700, marginBottom: 8 }}>● Listening… speak now</div>}
+                {listening && <div style={{ textAlign: "center", fontSize: 13, color: "#E8823A", fontWeight: 700, marginBottom: 8 }}>● Listening — speak clearly, I&apos;m ready</div>}
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
                   <button onClick={toggleMic} style={{ flex: "0 0 52px", height: 52, borderRadius: 16, border: "none", cursor: "pointer", fontSize: 22, background: listening ? "#FBE9DC" : "#F1ECE2", color: listening ? "#E8823A" : "#5A5347", position: "relative" }}>
                     {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 20, border: "2px solid #E8823A", animation: "jpulse 1.1s infinite" }} />}
@@ -852,6 +923,7 @@ export default function StudentApp({
 
             {/* Canvas column */}
             <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "0 0 60px", background: "#EFEAE0", display: "flex", flexDirection: "column" }}>
+              <LearningTimeline stageIndex={stageIndex} />
               <div style={{ display: "flex", background: "#fff", borderBottom: "1px solid #E7E1D6", padding: "0 20px", position: "sticky", top: 0, zIndex: 10 }}>
                 <button onClick={() => setLessonTab("canvas")} style={tabSty(lessonTab === "canvas")}>🧭 Canvas</button>
                 <button onClick={() => setLessonTab("quiz")} style={tabSty(lessonTab === "quiz")}>📝 Quiz</button>
@@ -860,7 +932,7 @@ export default function StudentApp({
                 <button onClick={() => setLessonTab("mindmap")} style={tabSty(lessonTab === "mindmap")}>🕸 Mind Map</button>
               </div>
 
-              {lessonTab === "canvas" && <CanvasTab scaffold={scaffold} stageIndex={stageIndex} stageDefs={stageDefs} layerBg={layerBg} layerFg={layerFg} canvasEmpty={canvasEmpty} topicImages={topicImages} teacherContent={teacherContent} />}
+              {lessonTab === "canvas" && <CanvasTab scaffold={scaffold} layerBg={layerBg} layerFg={layerFg} canvasEmpty={canvasEmpty} topicImages={topicImages} teacherContent={teacherContent} stageImages={stageImages} />}
               {lessonTab === "quiz" && <QuizTab quizData={quizData} quizState={quizState} quizLoading={quizLoading} generateQuiz={generateQuiz} answerQuiz={answerQuiz} topicImages={topicImages} teacherContent={teacherContent} />}
               {lessonTab === "flashcards" && <FlashcardsTab flashcards={flashcards} fcIndex={fcIndex} fcFlipped={fcFlipped} fcLoading={fcLoading} generate={generateFlashcards} flip={() => setFcFlipped((f) => !f)} next={() => { setFcIndex((i) => (i + 1) % flashcards.length); setFcFlipped(false); }} prev={() => { setFcIndex((i) => (i - 1 + flashcards.length) % flashcards.length); setFcFlipped(false); }} topicImages={topicImages} teacherContent={teacherContent} />}
               {lessonTab === "videos" && <VideosTab videos={videos} loading={videosLoading} generate={generateVideos} topicImages={topicImages} teacherContent={teacherContent} />}
@@ -1090,10 +1162,10 @@ function TrackerScreen({ tracker, allTopics, misconLog, schedule, dueList }: {
 }
 
 /* ===== CANVAS TAB ===== */
-function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEmpty, topicImages, teacherContent }: {
-  scaffold: Scaffold; stageIndex: number; stageDefs: [string, string][];
+function CanvasTab({ scaffold, layerBg, layerFg, canvasEmpty, topicImages, teacherContent, stageImages }: {
+  scaffold: Scaffold;
   layerBg: string[]; layerFg: string[]; canvasEmpty: boolean; topicImages: TopicImage[];
-  teacherContent: TeacherContentItem[];
+  teacherContent: TeacherContentItem[]; stageImages: Record<number, string>;
 }) {
   const cm = scaffold.cm;
   const ib = scaffold.ib;
@@ -1102,14 +1174,9 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
   );
   return (
     <div style={{ padding: "26px 30px 40px" }}>
-      <div style={{ display: "flex", gap: 6, marginBottom: 22, flexWrap: "wrap" }}>
-        {stageDefs.map((d, i) => {
-          const done = i < stageIndex; const cur = i === stageIndex;
-          return <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, background: cur ? "#4C43D9" : done ? "#E4F3EC" : "#fff", color: cur ? "#fff" : done ? "#1E7A50" : "#A79E8E", border: `1px solid ${cur ? "#4C43D9" : done ? "#BEE3CF" : "#E7E1D6"}`, padding: "7px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700 }}><span>{d[0]}</span>{d[1]}</div>;
-        })}
-      </div>
-
       {cm && (
+        <>
+        <StageImage url={stageImages[1]} label={cm.core || ""} />
         <Card>
           <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17, marginBottom: 4 }}>🗺 The Big Picture</div>
           <div style={{ textAlign: "center", background: "linear-gradient(150deg,#4C43D9,#6B62F5)", color: "#fff", borderRadius: 16, padding: 16, fontFamily: DISPLAY, fontWeight: 700, fontSize: 18, margin: "12px 0 18px" }}>{cm.core}</div>
@@ -1120,6 +1187,7 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
             <CmGroup title="Real-world links" titleColor="#2E9E6B">{cm.applications.map(chip("#E4F3EC", "#1E7A50"))}</CmGroup>
           </div>
         </Card>
+        </>
       )}
 
       {scaffold.inquiry && scaffold.inquiry.length > 0 && (
@@ -1130,6 +1198,8 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
       )}
 
       {scaffold.layers && scaffold.layers.length > 0 && (
+        <>
+        <StageImage url={stageImages[3]} label={scaffold.layers[0].title || ""} />
         <Card>
           <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17, marginBottom: 14 }}>📚 Explained in layers</div>
           {scaffold.layers.map((l, i) => (
@@ -1139,9 +1209,12 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
             </div>
           ))}
         </Card>
+        </>
       )}
 
       {ib && (
+        <>
+        <StageImage url={stageImages[4]} label={ib.key || ""} />
         <div style={{ background: "#23201B", color: "#fff", borderRadius: 20, padding: 24, marginBottom: 16, animation: "jfade .4s ease" }}>
           <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 17, marginBottom: 16 }}>◆ IB conceptual lens</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -1157,6 +1230,7 @@ function CanvasTab({ scaffold, stageIndex, stageDefs, layerBg, layerFg, canvasEm
             </div>
           )}
         </div>
+        </>
       )}
 
       {scaffold.miscon && scaffold.miscon.length > 0 && (
@@ -1401,6 +1475,72 @@ function MindMapTab({ mindMap, loading, generate, topicImages, teacherContent }:
       {loading && <Loading emoji="🕸" text="Building concept map…" />}
       <TeacherContent items={teacherContent} filter="text-image" />
       <UsefulResources images={topicImages} />
+    </div>
+  );
+}
+
+/* ===== LEARNING TIMELINE ===== */
+function LearningTimeline({ stageIndex }: { stageIndex: number }) {
+  const stages = [
+    { icon: "🎯", label: "Goal" },
+    { icon: "🗺", label: "Big Picture" },
+    { icon: "🤔", label: "Inquiry" },
+    { icon: "📚", label: "Explain" },
+    { icon: "◆", label: "IB Lens" },
+    { icon: "⚠", label: "Misconceptions" },
+    { icon: "✅", label: "Check" },
+    { icon: "🌱", label: "Reinforce" },
+  ];
+
+  return (
+    <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid #E7E1D6" }}>
+      <div style={{ fontSize: 11, color: "#8A8172", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 10 }}>
+        Learning Journey
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-start", position: "relative" }}>
+        {/* Connecting line behind nodes */}
+        <div style={{ position: "absolute", top: 18, left: 16, right: 16, height: 2, background: "#EEE9DF", zIndex: 0 }} />
+        {/* Progress fill */}
+        <div style={{ position: "absolute", top: 18, left: 16, width: stageIndex > 0 ? `calc(${(stageIndex / 7) * 100}% - 16px)` : 0, height: 2, background: "#4C43D9", zIndex: 1, transition: "width 0.6s ease" }} />
+        {stages.map((s, i) => {
+          const done = i < stageIndex;
+          const current = i === stageIndex;
+          return (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", zIndex: 2 }}>
+              <div style={{
+                width: current ? 36 : 28, height: current ? 36 : 28, borderRadius: "50%",
+                background: current ? "#4C43D9" : done ? "#2E9E6B" : "#fff",
+                border: `2px solid ${current ? "#4C43D9" : done ? "#2E9E6B" : "#E7E1D6"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: current ? 16 : 13, transition: "all 0.4s ease",
+                boxShadow: current ? "0 4px 12px rgba(76,67,217,0.4)" : "none",
+                marginTop: current ? 0 : 4,
+              }}>
+                {done ? "✓" : s.icon}
+              </div>
+              <div style={{
+                fontSize: 10, fontWeight: current ? 800 : done ? 600 : 400,
+                color: current ? "#4C43D9" : done ? "#2E9E6B" : "#A79E8E",
+                marginTop: 4, whiteSpace: "nowrap", transition: "color 0.4s ease",
+              }}>
+                {s.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ===== STAGE CONCEPT IMAGE ===== */
+function StageImage({ url, label }: { url?: string; label: string }) {
+  if (!url) return null;
+  return (
+    <div style={{ marginBottom: 16, borderRadius: 16, overflow: "hidden", border: "1px solid #E7E1D6" }}>
+      <img src={url} alt={`Visual: ${label}`} style={{ width: "100%", maxHeight: 280, objectFit: "cover", display: "block" }}
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+      <div style={{ padding: "8px 14px", background: "#F6F3EC", fontSize: 12, color: "#8A8172" }}>📸 Concept visual — {label}</div>
     </div>
   );
 }

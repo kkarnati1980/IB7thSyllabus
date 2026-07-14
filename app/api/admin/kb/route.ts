@@ -59,41 +59,55 @@ export async function POST(req: NextRequest) {
   );
 
   try {
-    // Extract text (import the inner module to avoid pdf-parse's debug harness).
     const buf = Buffer.from(await file.arrayBuffer());
-    const mod = await import("pdf-parse/lib/pdf-parse.js");
-    const pdfParse = (mod.default ?? mod) as unknown as (b: Buffer) => Promise<{ text: string }>;
-    const parsed = await pdfParse(buf);
-    const rawText = (parsed.text || "").trim();
-    if (!rawText) throw new Error("No extractable text found in the PDF.");
+    // Markdown/text uploads are already structured — ingest directly, skipping
+    // PDF extraction and the LLM conversion step.
+    const isText = /\.(md|markdown|txt)$/i.test(fileName) || /^text\//.test((file as File).type || "");
 
-    // Convert to structured markdown via the configured chat LLM.
-    const { client, model } = await getChatClient();
-    const md = await client.messages.create({
-      model,
-      max_tokens: 4000,
-      system:
-        `You are an IB MYP curriculum specialist. Convert the following PDF text into structured markdown ` +
-        `knowledge base sections. Each section must have a clear heading (##) and concise educational content ` +
-        `suitable for Grade ${grade.grade} IB MYP students. Output ONLY the markdown, no preamble.`,
-      messages: [{ role: "user", content: rawText.slice(0, MAX_TEXT_CHARS) }],
-    });
-    let markdown = messageText(md).trim();
-    if (!markdown) throw new Error("The chat LLM returned no content.");
+    let markdown: string;
+    let mdName: string;
+    if (isText) {
+      markdown = buf.toString("utf8").trim();
+      if (!markdown) throw new Error("The uploaded file was empty.");
+      mdName = fileName.replace(/\.(markdown|txt)$/i, "");
+      if (!/\.md$/i.test(mdName)) mdName += ".md";
+    } else {
+      // Extract text (import the inner module to avoid pdf-parse's debug harness).
+      const mod = await import("pdf-parse/lib/pdf-parse.js");
+      const pdfParse = (mod.default ?? mod) as unknown as (b: Buffer) => Promise<{ text: string }>;
+      const parsed = await pdfParse(buf);
+      const rawText = (parsed.text || "").trim();
+      if (!rawText) throw new Error("No extractable text found in the PDF.");
+
+      // Convert to structured markdown via the configured chat LLM.
+      const { client, model } = await getChatClient();
+      const md = await client.messages.create({
+        model,
+        max_tokens: 4000,
+        system:
+          `You are an IB MYP curriculum specialist. Convert the following PDF text into structured markdown ` +
+          `knowledge base sections. Each section must have a clear heading (##) and concise educational content ` +
+          `suitable for Grade ${grade.grade} IB MYP students. Output ONLY the markdown, no preamble.`,
+        messages: [{ role: "user", content: rawText.slice(0, MAX_TEXT_CHARS) }],
+      });
+      markdown = messageText(md).trim();
+      if (!markdown) throw new Error("The chat LLM returned no content.");
+      mdName = fileName.replace(/\.pdf$/i, "") + ".md";
+    }
+
     // ingestFile derives the subject from a top-level '# Title'; ensure one exists.
     if (!/^#\s/m.test(markdown)) {
-      const base = fileName.replace(/\.pdf$/i, "");
+      const base = fileName.replace(/\.(pdf|md|markdown|txt)$/i, "");
       markdown = `# ${base}\n\n${markdown}`;
     }
 
-    const mdName = fileName.replace(/\.pdf$/i, "") + ".md";
-    const { count } = await ingestFile(mdName, markdown, gradeId);
+    const { id: fileId, count } = await ingestFile(mdName, markdown, gradeId);
 
     await execute(
       "UPDATE kb_upload_jobs SET status = 'done', chunks_created = $2, updated_at = $3 WHERE id = $1",
       [jobId, count, nowIso()]
     );
-    return NextResponse.json({ jobId, status: "done", chunksCreated: count, fileName: mdName });
+    return NextResponse.json({ jobId, status: "done", chunksCreated: count, fileName: mdName, fileId });
   } catch (e) {
     const message = (e as Error).message || "Conversion failed";
     await execute(
