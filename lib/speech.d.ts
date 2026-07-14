@@ -10,6 +10,9 @@ interface SpeechRecognitionEvent extends Event {
     [index: number]: SpeechRecognitionResult;
   };
 }
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
 interface SpeechRecognitionInstance extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
@@ -17,11 +20,12 @@ interface SpeechRecognitionInstance extends EventTarget {
   maxAlternatives: number;
   start(): void;
   stop(): void;
+  abort(): void;
   onresult: ((e: SpeechRecognitionEvent) => void) | null;
   onspeechstart: (() => void) | null;
   onspeechend: (() => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: SpeechRecognitionErrorEvent) => void) | null;
 }
 interface Window {
   SpeechRecognition?: { new (): SpeechRecognitionInstance };

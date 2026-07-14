@@ -71,6 +71,7 @@ export default function StudentApp({
   });
   const [screen, setScreen] = useState<Screen>("home");
   const [muted, setMuted] = useState(false);
+  const [alwaysOn, setAlwaysOn] = useState(false); // continuous hands-free voice loop
 
   // Notifications (bell)
   const [notifOpen, setNotifOpen] = useState(false);
@@ -135,9 +136,31 @@ export default function StudentApp({
   const mutedRef = useRef(muted);
   const listeningRef = useRef(listening);
   const thinkingRef = useRef(thinking);
+  const speakingRef = useRef(speaking);
+  const alwaysOnRef = useRef(alwaysOn);
+  const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // mic long-press
+  const longPressedRef = useRef(false); // swallow the click that follows a long-press
   useEffect(() => void (mutedRef.current = muted), [muted]);
   useEffect(() => void (listeningRef.current = listening), [listening]);
   useEffect(() => void (thinkingRef.current = thinking), [thinking]);
+  useEffect(() => void (speakingRef.current = speaking), [speaking]);
+  useEffect(() => void (alwaysOnRef.current = alwaysOn), [alwaysOn]);
+
+  // Restart continuous listening once Jarvis is idle (always-on only). No-op otherwise.
+  const restartMic = useCallback((delay = 300) => {
+    if (!alwaysOnRef.current || thinkingRef.current) return;
+    setTimeout(() => {
+      const r = recogRef.current;
+      if (r) try { r.start(); setListening(true); } catch { /* already started */ }
+    }, delay);
+  }, []);
+
+  // Single cleanup for every "Jarvis stopped talking" path — clears speaking + reopens mic.
+  const afterSpeechDone = useCallback((delay = 400) => {
+    setSpeaking(false);
+    speakingRef.current = false;
+    restartMic(delay);
+  }, [restartMic]);
 
   const scrollChat = useCallback(() => {
     requestAnimationFrame(() => {
@@ -164,7 +187,7 @@ export default function StudentApp({
 
   // ---------------------------------------------------------------- voice
   const speakEl = useCallback(async (text: string, overrideVoiceId?: string) => {
-    if (mutedRef.current) return;
+    if (mutedRef.current) { afterSpeechDone(); return; }
     const vid = overrideVoiceId || voiceId || undefined;
     try {
       const res = await fetch("/api/tts", {
@@ -172,7 +195,7 @@ export default function StudentApp({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voiceId: vid }),
       });
-      if (!res.ok) return;
+      if (!res.ok) { afterSpeechDone(); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       if (audioRef.current) {
@@ -181,29 +204,37 @@ export default function StudentApp({
       }
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onplay = () => setSpeaking(true);
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onerror = () => setSpeaking(false);
+      audio.onplay = () => { setSpeaking(true); speakingRef.current = true; };
+      audio.onended = () => { URL.revokeObjectURL(url); afterSpeechDone(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); afterSpeechDone(); };
       await audio.play();
-    } catch { /* silent */ }
-  }, [voiceId]);
+    } catch { afterSpeechDone(); }
+  }, [voiceId, afterSpeechDone]);
 
   const speakBrowser = useCallback((text: string) => {
-    if (mutedRef.current || typeof window === "undefined" || !window.speechSynthesis) return;
-    if (listeningRef.current) return;
+    if (mutedRef.current || typeof window === "undefined" || !window.speechSynthesis) { afterSpeechDone(); return; }
+    if (listeningRef.current) { afterSpeechDone(); return; }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text.replace(/[*#_`>]/g, ""));
     u.rate = 1.02; u.pitch = 1.0;
     const vs = window.speechSynthesis.getVoices();
     const pref = vs.find((v) => /(daniel|google uk|arthur|male)/i.test(v.name)) || vs.find((v) => /en/i.test(v.lang));
     if (pref) u.voice = pref;
-    u.onstart = () => setSpeaking(true);
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
+    u.onstart = () => { setSpeaking(true); speakingRef.current = true; };
+    u.onend = () => afterSpeechDone();
+    u.onerror = () => afterSpeechDone();
     window.speechSynthesis.speak(u);
-  }, []);
+  }, [afterSpeechDone]);
 
   const speak = useCallback((text: string) => {
+    // Always-on: mute the mic while Jarvis talks so the TTS doesn't feed back in.
+    // Claim speakingRef *synchronously* so the abort's onend doesn't reopen the mic
+    // before the audio actually starts. afterSpeechDone() clears it and restarts.
+    if (alwaysOnRef.current) {
+      speakingRef.current = true;
+      const r = recogRef.current;
+      if (r) { try { r.abort(); } catch { /* ignore */ } setListening(false); }
+    }
     if (elConfigured) speakEl(text);
     else speakBrowser(text);
   }, [elConfigured, speakEl, speakBrowser]);
@@ -358,6 +389,10 @@ export default function StudentApp({
     r.onspeechstart = () => {
       speechStarted = true;
       if (silenceTimer) clearTimeout(silenceTimer);
+      // Barge-in: if the user talks while Jarvis is speaking, cut Jarvis off.
+      // ponytail: rarely fires — mic is aborted during TTS to avoid speaker feedback
+      // (no echo cancellation). Kept as a harmless safety net.
+      if (speakingRef.current) stopAudio();
     };
 
     r.onspeechend = () => {
@@ -378,8 +413,24 @@ export default function StudentApp({
       }
     };
 
-    r.onend = () => { setListening(false); speechStarted = false; };
-    r.onerror = () => { setListening(false); speechStarted = false; };
+    r.onend = () => {
+      setListening(false);
+      speechStarted = false;
+      // Always-on: reopen the mic once Jarvis is idle. speak() claims speakingRef
+      // synchronously, so a mic abort during TTS won't trip this restart.
+      if (alwaysOnRef.current && !thinkingRef.current && !speakingRef.current) {
+        setTimeout(() => { try { r.start(); setListening(true); } catch { /* ignore */ } }, 300);
+      }
+    };
+    r.onerror = (e: SpeechRecognitionErrorEvent) => {
+      setListening(false);
+      speechStarted = false;
+      // Retry on transient errors (e.g. no-speech during a quiet stretch); 'aborted'
+      // means we stopped it deliberately, so leave it closed.
+      if (alwaysOnRef.current && e.error !== "aborted" && !thinkingRef.current && !speakingRef.current) {
+        setTimeout(() => { try { r.start(); setListening(true); } catch { /* ignore */ } }, 1000);
+      }
+    };
     recogRef.current = r;
   }, []);
 
@@ -392,8 +443,44 @@ export default function StudentApp({
   function toggleMic() {
     const r = recogRef.current;
     if (!r) { alert("Voice input needs Chrome/Safari with mic permission."); return; }
-    if (listening) { r.stop(); setListening(false); }
-    else { stopAudio(); try { r.start(); setListening(true); setChatInput(""); } catch { /* ignore */ } }
+    if (alwaysOn) {
+      // Tap while always-on is active turns the continuous loop off.
+      setAlwaysOn(false);
+      alwaysOnRef.current = false;
+      try { r.abort(); } catch { /* ignore */ }
+      setListening(false);
+    } else if (listening) {
+      r.stop();
+      setListening(false);
+    } else {
+      stopAudio();
+      try { r.start(); setListening(true); setChatInput(""); } catch { /* ignore */ }
+    }
+  }
+
+  // Long-press the mic → hands-free continuous listening.
+  function activateAlwaysOn() {
+    const r = recogRef.current;
+    if (!r) return;
+    setAlwaysOn(true);
+    alwaysOnRef.current = true;
+    setMuted(false); // hands-free is pointless muted
+    mutedRef.current = false;
+    stopAudio();
+    try { r.start(); setListening(true); setChatInput(""); } catch { /* ignore */ }
+  }
+
+  // Mic button: tap = push-to-talk, long-press (500ms) = toggle always-on.
+  function micPressStart() {
+    longPressedRef.current = false;
+    pressTimerRef.current = setTimeout(() => { longPressedRef.current = true; activateAlwaysOn(); }, 500);
+  }
+  function micPressEnd() {
+    if (pressTimerRef.current) { clearTimeout(pressTimerRef.current); pressTimerRef.current = null; }
+  }
+  function micClick() {
+    if (longPressedRef.current) { longPressedRef.current = false; return; } // long-press already handled
+    toggleMic();
   }
 
   function interruptSpeech() { stopAudio(); toggleMic(); }
@@ -905,11 +992,27 @@ export default function StudentApp({
               </div>
 
               <div style={{ padding: "16px 20px", borderTop: "1px solid #E2DBCE", background: "#fff" }}>
-                {speaking && <div onClick={interruptSpeech} style={{ textAlign: "center", fontSize: 13, color: "#4C43D9", fontWeight: 700, marginBottom: 8, cursor: "pointer", userSelect: "none" }}>🔊 Jarvis is speaking — tap to interrupt</div>}
-                {listening && <div style={{ textAlign: "center", fontSize: 13, color: "#E8823A", fontWeight: 700, marginBottom: 8 }}>● Listening — speak clearly, I&apos;m ready</div>}
+                {alwaysOn && speaking
+                  ? <div onClick={() => { stopAudio(); speakingRef.current = false; restartMic(200); }} style={{ textAlign: "center", fontSize: 13, color: "#2F6FE8", fontWeight: 700, marginBottom: 8, cursor: "pointer", userSelect: "none" }}>🔊 Jarvis speaking — interrupt anytime</div>
+                  : speaking
+                    ? <div onClick={interruptSpeech} style={{ textAlign: "center", fontSize: 13, color: "#4C43D9", fontWeight: 700, marginBottom: 8, cursor: "pointer", userSelect: "none" }}>🔊 Jarvis is speaking — tap to interrupt</div>
+                    : alwaysOn
+                      ? <div style={{ textAlign: "center", fontSize: 13, color: "#2E9E6B", fontWeight: 700, marginBottom: 8 }}>🟢 Always listening — speak anytime</div>
+                      : listening
+                        ? <div style={{ textAlign: "center", fontSize: 13, color: "#E8823A", fontWeight: 700, marginBottom: 8 }}>● Listening — speak clearly, I&apos;m ready</div>
+                        : null}
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                  <button onClick={toggleMic} style={{ flex: "0 0 52px", height: 52, borderRadius: 16, border: "none", cursor: "pointer", fontSize: 22, background: listening ? "#FBE9DC" : "#F1ECE2", color: listening ? "#E8823A" : "#5A5347", position: "relative" }}>
-                    {listening && <span style={{ position: "absolute", inset: -4, borderRadius: 20, border: "2px solid #E8823A", animation: "jpulse 1.1s infinite" }} />}
+                  <button
+                    onClick={micClick}
+                    onMouseDown={micPressStart} onMouseUp={micPressEnd} onMouseLeave={micPressEnd}
+                    onTouchStart={micPressStart} onTouchEnd={micPressEnd}
+                    title="Tap to talk · hold for hands-free"
+                    style={{ flex: "0 0 52px", height: 52, borderRadius: 16, border: "none", cursor: "pointer", fontSize: 22, position: "relative",
+                      background: alwaysOn ? "#2E9E6B" : listening ? "#FBE9DC" : "#F1ECE2",
+                      color: alwaysOn ? "#fff" : listening ? "#E8823A" : "#5A5347" }}>
+                    {alwaysOn
+                      ? <span style={{ position: "absolute", inset: -3, borderRadius: 19, border: "2px solid #2E9E6B", animation: "jpulse 1.5s infinite" }} />
+                      : listening && <span style={{ position: "absolute", inset: -4, borderRadius: 20, border: "2px solid #E8823A", animation: "jpulse 1.1s infinite" }} />}
                     🎙
                   </button>
                   <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)}
