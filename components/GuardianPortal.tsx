@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { stripMentionPrefix } from "@/lib/mentions";
 
 const DISPLAY = "'Bricolage Grotesque', system-ui, sans-serif";
 const PRIMARY = "#4C43D9";
@@ -788,7 +787,7 @@ export default function GuardianPortal({
                         <span style={{ marginLeft: "auto", fontSize: 11, color: "#A79E8E" }}>{timeAgo(m.created_at)}</span>
                       </div>
                       <div style={{ fontSize: 14, lineHeight: 1.5, color: "#3A362E", whiteSpace: "pre-wrap" }}>
-                        {stripMentionPrefix(m.content)}
+                        {m.content}
                       </div>
                     </div>
                   </div>

@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
 import { getUserGradeId } from "@/lib/school";
 import { isResponseSafe, getSafetyFallback } from "@/lib/guardrails";
-import { getClient, MODEL, messageText } from "@/lib/anthropic";
+import { getChatClient, messageText } from "@/lib/anthropic";
 import { tutorSystemPrompt } from "@/lib/prompts";
 import { trackerSummary, updateProgress } from "@/lib/progress";
 import { masteryToCriterionScore, upsertJarvisAssessment } from "@/lib/myp";
@@ -143,9 +143,9 @@ export async function POST(req: NextRequest) {
 
   let raw: string;
   try {
-    const client = getClient();
+    const { client, model } = await getChatClient();
     const message = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 1600,
       system: tutorSystemPrompt(topicName, subjectName, ctx, summary, gradeId ?? "grade_7_iish", isTeacher),
       messages: convo,

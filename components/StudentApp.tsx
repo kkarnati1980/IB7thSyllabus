@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { stripMentionPrefix } from "@/lib/mentions";
 import type {
   Flashcard,
   MindMap,
@@ -712,7 +711,7 @@ export default function StudentApp({
                     {m.from_name && <span style={{ fontSize: 12, color: "#8A8172" }}>from {m.from_name}</span>}
                     {!m.read && <span style={{ marginLeft: "auto", width: 8, height: 8, borderRadius: 4, background: "#4C43D9" }} />}
                   </div>
-                  <div style={{ fontSize: 14, color: "#3A362E", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{stripMentionPrefix(m.content)}</div>
+                  <div style={{ fontSize: 14, color: "#3A362E", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{m.content}</div>
                 </div>
               ))}
             </div>

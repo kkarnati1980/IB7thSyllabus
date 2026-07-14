@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, type User } from "@/lib/auth";
 import { execute, nowIso, query, queryOne, uid } from "@/lib/db";
-import { getClient, messageText, parseJson } from "@/lib/anthropic";
+import { getModerationClient, messageText, parseJson } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 
@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
       params.push(visible === "true");
       clauses.push(`visible = $${params.length}`);
     }
+    // Students only ever see content a grade teacher has approved.
+    if (isStudent) clauses.push("approval_status = 'approved'");
     const content = await query(
       `SELECT id, subject_name, topic_name, content_type, content, title, added_by, visible, created_at
          FROM teacher_content WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`,
@@ -107,9 +109,9 @@ export async function POST(req: NextRequest) {
       let approved = true;
       let reason = "";
       try {
-        const client = getClient();
+        const { client, model } = await getModerationClient();
         const msg = await client.messages.create({
-          model: "claude-haiku-4-5-20251001",
+          model,
           max_tokens: 200,
           system: `You are a content-safety moderator for an IB MYP Grade 7 classroom. Decide whether the submitted teaching content is (a) appropriate for Grade 7 IB MYP students and (b) relevant to the topic "${topicName}" in the subject "${subjectName}". Respond with ONLY a JSON object: {"approved": boolean, "reason": string}. If rejecting, the reason must briefly explain why.`,
           messages: [{ role: "user", content: `Title: ${title}\n\nContent:\n${content}` }],
@@ -136,10 +138,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const submittedAt = nowIso();
     await execute(
-      `INSERT INTO teacher_content (id, subject_name, topic_name, content_type, content, title, added_by, visible, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)`,
-      [uid("tc"), subjectName, topicName, contentType, content, title, user.id, nowIso()]
+      `INSERT INTO teacher_content (id, subject_name, topic_name, content_type, content, title, added_by, visible, created_at, approval_status, submitted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, 'pending', $9)`,
+      [uid("tc"), subjectName, topicName, contentType, content, title, user.id, submittedAt, submittedAt]
     );
     return NextResponse.json({ ok: true });
   } catch (e) {

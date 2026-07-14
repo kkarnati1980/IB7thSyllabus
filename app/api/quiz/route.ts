@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { retrieve } from "@/lib/db";
 import { getUserGradeId } from "@/lib/school";
-import { getClient, MODEL, messageText, parseJson } from "@/lib/anthropic";
+import { getChatClient, messageText, parseJson } from "@/lib/anthropic";
 import { quizSystemPrompt } from "@/lib/prompts";
 import type { QuizItem } from "@/lib/types";
 
@@ -23,9 +23,9 @@ export async function POST(req: NextRequest) {
   const ragCtx = chunks.map((c) => c.text).join("\n");
 
   try {
-    const client = getClient();
+    const { client, model } = await getChatClient();
     const message = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 1800,
       system: quizSystemPrompt(subject || "", topic || "", ragCtx, gradeId ?? "grade_7_iish", isTeacher),
       messages: [{ role: "user", content: "Generate the quiz now." }],

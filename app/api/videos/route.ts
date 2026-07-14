@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserGradeId } from "@/lib/school";
 import { filterVideos } from "@/lib/guardrails";
-import { getClient, MODEL, messageText, parseJson } from "@/lib/anthropic";
+import { getChatClient, messageText, parseJson } from "@/lib/anthropic";
 import { videosSystemPrompt } from "@/lib/prompts";
 import type { VideoItem } from "@/lib/types";
 
@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
   const isTeacher = ["subject_teacher", "grade_teacher"].includes(user.role);
 
   try {
-    const client = getClient();
+    const { client, model } = await getChatClient();
     const message = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 1400,
       system: videosSystemPrompt(subject || "", topic || "", gradeId, isTeacher),
       messages: [{ role: "user", content: "Generate video recommendations." }],
