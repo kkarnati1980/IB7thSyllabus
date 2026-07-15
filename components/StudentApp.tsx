@@ -140,6 +140,8 @@ export default function StudentApp({
   const alwaysOnRef = useRef(alwaysOn);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // mic long-press
   const longPressedRef = useRef(false); // swallow the click that follows a long-press
+  const ttsActiveRef = useRef(false); // locked from speak() until audio fully done — blocks mic restart
+  const lastJarvisTextRef = useRef(""); // last thing Jarvis said, for echo rejection
   useEffect(() => void (mutedRef.current = muted), [muted]);
   useEffect(() => void (listeningRef.current = listening), [listening]);
   useEffect(() => void (thinkingRef.current = thinking), [thinking]);
@@ -147,18 +149,22 @@ export default function StudentApp({
   useEffect(() => void (alwaysOnRef.current = alwaysOn), [alwaysOn]);
 
   // Restart continuous listening once Jarvis is idle (always-on only). No-op otherwise.
-  const restartMic = useCallback((delay = 300) => {
-    if (!alwaysOnRef.current || thinkingRef.current) return;
+  // 600ms cooldown lets the last echo/reverb of Jarvis's audio die before the mic reopens.
+  const restartMic = useCallback((delay = 600) => {
+    if (!alwaysOnRef.current || thinkingRef.current || ttsActiveRef.current) return;
     setTimeout(() => {
+      if (ttsActiveRef.current) return; // TTS resumed during the cooldown
       const r = recogRef.current;
       if (r) try { r.start(); setListening(true); } catch { /* already started */ }
     }, delay);
   }, []);
 
-  // Single cleanup for every "Jarvis stopped talking" path — clears speaking + reopens mic.
-  const afterSpeechDone = useCallback((delay = 400) => {
+  // Single cleanup for every "Jarvis stopped talking" path — releases the TTS lock,
+  // clears speaking + reopens mic.
+  const afterSpeechDone = useCallback((delay = 600) => {
     setSpeaking(false);
     speakingRef.current = false;
+    ttsActiveRef.current = false; // release TTS lock
     restartMic(delay);
   }, [restartMic]);
 
@@ -187,6 +193,7 @@ export default function StudentApp({
 
   // ---------------------------------------------------------------- voice
   const speakEl = useCallback(async (text: string, overrideVoiceId?: string) => {
+    ttsActiveRef.current = true; // lock before any network/audio work
     if (mutedRef.current) { afterSpeechDone(); return; }
     const vid = overrideVoiceId || voiceId || undefined;
     try {
@@ -204,7 +211,12 @@ export default function StudentApp({
       }
       const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onplay = () => { setSpeaking(true); speakingRef.current = true; };
+      audio.onplay = () => {
+        setSpeaking(true); speakingRef.current = true;
+        // Ensure the mic is dead while audio plays — never let TTS feed back in.
+        const r = recogRef.current;
+        if (r) { try { r.abort(); setListening(false); } catch { /* ignore */ } }
+      };
       audio.onended = () => { URL.revokeObjectURL(url); afterSpeechDone(); };
       audio.onerror = () => { URL.revokeObjectURL(url); afterSpeechDone(); };
       await audio.play();
@@ -212,6 +224,7 @@ export default function StudentApp({
   }, [voiceId, afterSpeechDone]);
 
   const speakBrowser = useCallback((text: string) => {
+    ttsActiveRef.current = true; // lock before any audio work
     if (mutedRef.current || typeof window === "undefined" || !window.speechSynthesis) { afterSpeechDone(); return; }
     if (listeningRef.current) { afterSpeechDone(); return; }
     window.speechSynthesis.cancel();
@@ -227,14 +240,15 @@ export default function StudentApp({
   }, [afterSpeechDone]);
 
   const speak = useCallback((text: string) => {
-    // Always-on: mute the mic while Jarvis talks so the TTS doesn't feed back in.
-    // Claim speakingRef *synchronously* so the abort's onend doesn't reopen the mic
-    // before the audio actually starts. afterSpeechDone() clears it and restarts.
-    if (alwaysOnRef.current) {
-      speakingRef.current = true;
-      const r = recogRef.current;
-      if (r) { try { r.abort(); } catch { /* ignore */ } setListening(false); }
-    }
+    // Layer 1: kill the mic BEFORE any audio — no gap for TTS to feed back in.
+    // Layer 2: claim ttsActiveRef + speakingRef *synchronously* so the abort's onend
+    // (and any restart timer) can't reopen the mic before audio starts. afterSpeechDone()
+    // releases both. Layer 4: remember what Jarvis said so we can reject its echo.
+    ttsActiveRef.current = true;
+    speakingRef.current = true;
+    lastJarvisTextRef.current = text.toLowerCase().trim().slice(0, 60);
+    const r = recogRef.current;
+    if (r) { try { r.abort(); } catch { /* ignore */ } setListening(false); }
     if (elConfigured) speakEl(text);
     else speakBrowser(text);
   }, [elConfigured, speakEl, speakBrowser]);
@@ -409,6 +423,18 @@ export default function StudentApp({
       if (e.results[e.results.length - 1].isFinal) {
         setListening(false);
         if (silenceTimer) clearTimeout(silenceTimer);
+        // Layer 4: last-resort echo filter — if the transcript matches the start of what
+        // Jarvis just said, it's the mic catching its own audio. Discard, don't send.
+        const tLower = t.toLowerCase().trim();
+        const lastSaid = lastJarvisTextRef.current;
+        const isEcho = !!lastSaid && !!tLower && (
+          tLower.startsWith(lastSaid.slice(0, 20)) || lastSaid.startsWith(tLower.slice(0, 20))
+        );
+        if (isEcho) {
+          console.warn("Echo detected — discarding transcript:", t.slice(0, 50));
+          setChatInput("");
+          return;
+        }
         setTimeout(() => sendRef.current(t), 300); // small buffer before sending
       }
     };
@@ -416,10 +442,14 @@ export default function StudentApp({
     r.onend = () => {
       setListening(false);
       speechStarted = false;
-      // Always-on: reopen the mic once Jarvis is idle. speak() claims speakingRef
-      // synchronously, so a mic abort during TTS won't trip this restart.
-      if (alwaysOnRef.current && !thinkingRef.current && !speakingRef.current) {
-        setTimeout(() => { try { r.start(); setListening(true); } catch { /* ignore */ } }, 300);
+      // Always-on: reopen the mic once Jarvis is idle. speak()/speakEl claim the TTS lock
+      // synchronously, so a mic abort during TTS can't trip this restart. 600ms cooldown
+      // lets the audio's echo tail die first.
+      if (alwaysOnRef.current && !thinkingRef.current && !speakingRef.current && !ttsActiveRef.current) {
+        setTimeout(() => {
+          if (ttsActiveRef.current) return; // TTS started during the cooldown
+          try { r.start(); setListening(true); } catch { /* ignore */ }
+        }, 600);
       }
     };
     r.onerror = (e: SpeechRecognitionErrorEvent) => {
@@ -427,8 +457,11 @@ export default function StudentApp({
       speechStarted = false;
       // Retry on transient errors (e.g. no-speech during a quiet stretch); 'aborted'
       // means we stopped it deliberately, so leave it closed.
-      if (alwaysOnRef.current && e.error !== "aborted" && !thinkingRef.current && !speakingRef.current) {
-        setTimeout(() => { try { r.start(); setListening(true); } catch { /* ignore */ } }, 1000);
+      if (alwaysOnRef.current && e.error !== "aborted" && !thinkingRef.current && !speakingRef.current && !ttsActiveRef.current) {
+        setTimeout(() => {
+          if (ttsActiveRef.current) return;
+          try { r.start(); setListening(true); } catch { /* ignore */ }
+        }, 1000);
       }
     };
     recogRef.current = r;
@@ -438,6 +471,8 @@ export default function StudentApp({
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
     if (typeof window !== "undefined" && window.speechSynthesis) window.speechSynthesis.cancel();
     setSpeaking(false);
+    speakingRef.current = false;
+    ttsActiveRef.current = false; // pause() never fires onended — release the lock here or the mic deadlocks
   }
 
   function toggleMic() {
@@ -462,6 +497,13 @@ export default function StudentApp({
   function activateAlwaysOn() {
     const r = recogRef.current;
     if (!r) return;
+    // Layer 5: hint the browser to echo-cancel the mic so it filters Jarvis's own voice.
+    // Chrome auto-applies this for same-tab audio; requesting it explicitly reinforces it.
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices
+        .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+        .catch(() => { /* ignore — browser will use defaults */ });
+    }
     setAlwaysOn(true);
     alwaysOnRef.current = true;
     setMuted(false); // hands-free is pointless muted
